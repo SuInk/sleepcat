@@ -17,7 +17,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>      <string>SleepCat</string>
-    <key>CFBundleIdentifier</key>      <string>local.diana.sleepcat</string>
+    <key>CFBundleIdentifier</key>      <string>com.suink.sleepcat</string>
     <key>CFBundleName</key>            <string>SleepCat</string>
     <key>CFBundleDisplayName</key>     <string>SleepCat</string>
     <key>CFBundleShortVersionString</key> <string>1.0</string>
