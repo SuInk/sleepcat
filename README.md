@@ -24,10 +24,12 @@ A cat in your menu bar that keeps your Mac awake — including with the lid clos
 
 ```sh
 brew tap suink/tap
-brew install --cask sleepcat --no-quarantine
+brew trust suink/tap        # Homebrew 6 起第三方 tap 需要显式信任
+brew install --cask sleepcat
+xattr -dr com.apple.quarantine /Applications/SleepCat.app
 ```
 
-（`--no-quarantine` 是因为应用只做了 ad-hoc 签名、未公证；不加的话 Gatekeeper 会拦，需手动 `xattr -dr com.apple.quarantine /Applications/SleepCat.app`。）
+（最后一步是因为应用只做了 ad-hoc 签名、未公证，不去掉 quarantine 标记会被 Gatekeeper 拦。）
 
 或者从源码构建（需要 Xcode Command Line Tools）：
 
