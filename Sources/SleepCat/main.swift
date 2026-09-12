@@ -80,6 +80,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.autosaveName = "SleepCat"   // 记住用户 ⌘ 拖动后的位置
         if let button = statusItem.button {
             button.action = #selector(statusItemClicked(_:))
             button.target = self
@@ -112,6 +113,25 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if duoBlurEnabled { duoBlur?.start() }
 
         updateIcon()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.logStatusItemPosition()
+        }
+    }
+
+    /// 把状态项落位写进 ~/Library/Logs/SleepCat.log，用于验证位置设置是否生效
+    private func logStatusItemPosition() {
+        guard let f = statusItem.button?.window?.frame,
+              let screen = NSScreen.main else { return }
+        let line = "[\(Date())] status item x=\(Int(f.minX)) 距右边缘=\(Int(screen.frame.maxX - f.maxX)) 宽=\(Int(f.width))\n"
+        let path = ("~/Library/Logs/SleepCat.log" as NSString).expandingTildeInPath
+        if let h = FileHandle(forWritingAtPath: path) {
+            h.seekToEndOfFile()
+            h.write(line.data(using: .utf8)!)
+            try? h.close()
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
+        }
     }
 
     // 左键：直接切换开关；右键：弹菜单
