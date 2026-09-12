@@ -27,8 +27,12 @@ final class LidBlocker {
 
     /// 从 `pmset -g` 读 SleepDisabled 当前值
     static func readSleepDisabled() -> Bool {
-        let out = run(pmsetPath, ["-g"]).stdout
-        for line in out.split(separator: "\n") where line.contains("SleepDisabled") {
+        parseSleepDisabled(run(pmsetPath, ["-g"]).stdout)
+    }
+
+    /// 解析 `pmset -g` 输出里的 SleepDisabled 值（纯函数，便于测试）
+    static func parseSleepDisabled(_ output: String) -> Bool {
+        for line in output.split(separator: "\n") where line.contains("SleepDisabled") {
             return line.contains("1")
         }
         return false
