@@ -112,6 +112,18 @@ final class LidBlocker {
             : r.stderr.trimmed
     }
 
+    /// 看门狗：macOS 会在睡眠/唤醒等时机把 disablesleep 悄悄清回 0（实测过），
+    /// 清了就静默重新设上。返回 true 表示"发现被清掉并已补回"。
+    @discardableResult
+    func reassertIfCleared() -> Bool {
+        let actual = Self.readSleepDisabled()
+        isActive = actual   // 先同步真实状态，否则 set() 会以为无需改动而直接跳过
+        guard !actual else { return false }
+        let err = set(true)
+        Self.log("reassert disablesleep 被系统清掉 -> \(err ?? "已补回")")
+        return err == nil
+    }
+
     /// 静默恢复（只走免密通道，绝不弹框）——用于启动时清理上次崩溃的残留
     func trySilentRestore() {
         guard isActive else { return }

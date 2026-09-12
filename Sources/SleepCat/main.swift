@@ -44,6 +44,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var deadline: Date?
     private var headerItem: NSMenuItem?
     private var heartbeatTimer: Timer?
+    private var lidWatchdog: Timer?
     private var activePreset: Int?   // 当前生效的定时预设（分钟）
 
     // 偏好
@@ -229,6 +230,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             deadline = nil
         }
         saveSession()
+        startLidWatchdog()
         if !resumed { playSound(awake: true) }   // 恢复会话时不喵，免得启动就叫
         updateIcon()
         island.peek()
@@ -242,6 +244,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         deadline = nil
         activePreset = nil
         clearSession()
+        lidWatchdog?.invalidate()
+        lidWatchdog = nil
         playSound(awake: false)
         updateIcon()
         island.peek()
@@ -614,6 +618,26 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lidBlocker.trySilentRestore()
             if !lidBlocker.isActive { lidSetByUs = false }
         }
+    }
+
+    /// 合盖防护看门狗：系统会在睡眠/唤醒等时机把 disablesleep 清回 0，
+    /// 只设一次是守不住的，喵住期间要持续盯着补回来。
+    private func startLidWatchdog() {
+        lidWatchdog?.invalidate()
+        guard lidBlockEnabled else { return }
+        lidWatchdog = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self, self.blocker.isActive, self.lidBlockEnabled else { return }
+            if self.lidBlocker.reassertIfCleared() { self.lidSetByUs = true }
+        }
+        // 唤醒瞬间是被清掉的高发时刻，立刻补一次，别等下一个轮询周期
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(systemDidWake),
+            name: NSWorkspace.didWakeNotification, object: nil)
+    }
+
+    @objc private func systemDidWake() {
+        guard blocker.isActive, lidBlockEnabled else { return }
+        if lidBlocker.reassertIfCleared() { lidSetByUs = true }
     }
 
     /// 恢复正常合盖休眠；失败时弹警告避免不知情
