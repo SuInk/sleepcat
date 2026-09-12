@@ -96,6 +96,22 @@ import AppKit
     }
 }
 
+@Suite struct MenuLayoutTests {
+    @MainActor @Test func everyIconSharesOneColumnWidth() {
+        let widths = Set(SleepCatApp().buildMenu().items.compactMap { $0.image?.size.width })
+        #expect(widths.count == 1, "图标宽度必须统一，否则每行文字起点会左右浮动：\(widths)")
+    }
+
+    @MainActor @Test func everyRowHasAnIcon() {
+        let rows = SleepCatApp().buildMenu().items.filter {
+            !$0.isSeparatorItem && $0.attributedTitle == nil && !$0.title.isEmpty
+        }
+        let naked = rows.filter { $0.image == nil }.map(\.title)
+        // 分组标题本身没有图标，其余每行都该有
+        #expect(naked.allSatisfy { ["喵住设置", "效果与提示"].contains($0) }, "缺图标的行：\(naked)")
+    }
+}
+
 @Suite struct SessionResumeTests {
     let now = Date(timeIntervalSince1970: 1_000_000)
 

@@ -288,13 +288,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // ── 主操作 ──
         if blocker.isActive {
-            let stop = makeItem("放猫猫去睡", #selector(menuDeactivate))
-            stop.image = symbol("moon.zzz.fill")
-            menu.addItem(stop)
+            menu.addItem(makeItem("放猫猫去睡", #selector(menuDeactivate), symbol: "moon.zzz.fill"))
         } else {
-            let start = makeItem("立即喵住", #selector(menuActivateForever))
-            start.image = symbol("cup.and.saucer.fill")
-            menu.addItem(start)
+            menu.addItem(makeItem("立即喵住", #selector(menuActivateForever), symbol: "cup.and.saucer.fill"))
         }
 
         let timedRoot = NSMenuItem(title: "喵住时长", action: nil, keyEquivalent: "")
@@ -316,12 +312,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // ── 喵住设置 ──
         menu.addItem(sectionHeader("喵住设置"))
 
-        let displayItem = makeItem("保持屏幕常亮", #selector(toggleDisplaySetting))
+        let displayItem = makeItem("保持屏幕常亮", #selector(toggleDisplaySetting), symbol: "sun.max")
         displayItem.state = keepDisplayOn ? .on : .off
         displayItem.toolTip = "关闭时只阻止系统休眠，屏幕仍可自动关闭"
         menu.addItem(displayItem)
 
-        let lidItem = makeItem("合盖也不休眠", #selector(toggleLidSetting))
+        let lidItem = makeItem("合盖也不休眠", #selector(toggleLidSetting), symbol: "laptopcomputer")
         lidItem.state = lidBlockEnabled ? .on : .off
         lidItem.toolTip = "需要管理员权限执行 pmset disablesleep"
         menu.addItem(lidItem)
@@ -329,7 +325,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if lidBlockEnabled {
             let hasFreePass = lidBlocker.freePassInstalled()
             let fpItem = makeItem(hasFreePass ? "免密切换（已授权）" : "免密切换（未授权，每次输密码）",
-                                  #selector(toggleFreePass))
+                                  #selector(toggleFreePass), symbol: "key")
             fpItem.state = hasFreePass ? .on : .off
             fpItem.indentationLevel = 1
             fpItem.toolTip = hasFreePass
@@ -341,12 +337,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // ── 效果与提示 ──
         menu.addItem(sectionHeader("效果与提示"))
 
-        let duoItem = makeItem("刘海灵动岛", #selector(toggleDuoSetting))
+        let duoItem = makeItem("刘海灵动岛", #selector(toggleDuoSetting), symbol: "capsule")
         duoItem.state = duoEnabled ? .on : .off
         duoItem.toolTip = "鼠标悬停刘海展开状态胶囊，点按可切换"
         menu.addItem(duoItem)
 
-        let blurItem = makeItem("合盖渐变模糊", #selector(toggleDuoBlurSetting))
+        let blurItem = makeItem("合盖渐变模糊", #selector(toggleDuoBlurSetting), symbol: "camera.filters")
         if duoBlur != nil {
             blurItem.state = duoBlurEnabled ? .on : .off
             blurItem.toolTip = "跟随铰链角度实时模糊屏幕"
@@ -357,14 +353,14 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(blurItem)
 
-        let soundItem = makeItem("切换时播放喵声", #selector(toggleSoundSetting))
+        let soundItem = makeItem("切换时播放喵声", #selector(toggleSoundSetting), symbol: "speaker.wave.2")
         soundItem.state = soundEnabled ? .on : .off
         menu.addItem(soundItem)
 
         // ── 关于 / 退出 ──
         menu.addItem(.separator())
-        menu.addItem(makeItem("项目主页…", #selector(openHomepage)))
-        menu.addItem(makeItem("退出 SleepCat", #selector(quit), key: "q"))
+        menu.addItem(makeItem("项目主页…", #selector(openHomepage), symbol: "link"))
+        menu.addItem(makeItem("退出 SleepCat", #selector(quit), symbol: "power", key: "q"))
 
         return menu
     }
@@ -391,17 +387,42 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if let sub = item.submenu { walk(sub, depth: depth + 1) }
             }
         }
-        walk(app.buildMenu(), depth: 0)
+        let menu = app.buildMenu()
+        walk(menu, depth: 0)
+        let widest = menu.items.compactMap { $0.image?.size.width }.max() ?? 0
+        print("菜单尺寸 \(Int(menu.size.width))×\(Int(menu.size.height))，最宽图标 \(Int(widest))pt")
     }
 
-    private func makeItem(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+    /// 每个可点条目都配一个符号图标，菜单左缘才是一条直线（缺图标的行文字会往左串）
+    private func makeItem(_ title: String, _ action: Selector,
+                          symbol name: String? = nil, key: String = "") -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
+        if let name { item.image = symbol(name) }
         return item
     }
 
+    /// 菜单图标统一画布。符号本身宽窄不一（laptopcomputer 比 key 宽一倍），
+    /// 直接用原图会让每行文字的起点左右浮动，菜单左缘就成锯齿了。
+    private static let iconCanvas = NSSize(width: 18, height: 16)
+
+    private static func fitIcon(_ src: NSImage) -> NSImage {
+        let out = NSImage(size: iconCanvas, flipped: false) { rect in
+            let s = src.size
+            guard s.width > 0, s.height > 0 else { return true }
+            let scale = min(rect.width / s.width, rect.height / s.height)
+            let w = s.width * scale, h = s.height * scale
+            src.draw(in: NSRect(x: rect.midX - w / 2, y: rect.midY - h / 2, width: w, height: h))
+            return true
+        }
+        out.isTemplate = true
+        return out
+    }
+
     private func symbol(_ name: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        guard let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular)) else { return nil }
+        return Self.fitIcon(img)
     }
 
     /// 分组标题（macOS 14+ 用原生 section header，老系统退化为灰色小标题）
@@ -420,10 +441,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func makeHeaderItem() -> NSMenuItem {
         let item = NSMenuItem()
         item.isEnabled = false
-        item.image = blocker.isActive ? CatIcon.awake : CatIcon.asleep
+        item.image = headerIcon()
         item.toolTip = "左键点菜单栏的猫猫可直接切换"
         item.attributedTitle = headerTitle()
         return item
+    }
+
+    /// 状态头的猫比普通条目图标大一圈，压得住两行文字
+    private func headerIcon() -> NSImage {
+        Self.fitIcon(blocker.isActive ? CatIcon.awake : CatIcon.asleep)
     }
 
     private func headerTitle() -> NSAttributedString {
@@ -440,13 +466,17 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             title = "打盹中"
             detail = "Mac 可正常休眠"
         }
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = 2   // 两行贴太紧会糊成一团
         let s = NSMutableAttributedString(string: title + "\n", attributes: [
             .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
             .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: para,
         ])
         s.append(NSAttributedString(string: detail, attributes: [
             .font: NSFont.systemFont(ofSize: 11),
             .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: para,
         ]))
         return s
     }
