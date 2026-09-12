@@ -18,6 +18,7 @@ A cat in your menu bar that keeps your Mac awake — including with the lid clos
   - 同时保持屏幕常亮（可选，默认只防系统休眠）
   - 音效：喵（代码合成）/ 呼噜（默认关闭）
 - 🏝️ **Duo 岛**：把 MacBook 刘海当灵动岛用（iPhone Duo 风格）——平时隐身，鼠标悬停到刘海或喵住状态变化时流畅展开成黑色胶囊，显示猫猫状态和剩余时间，点按直接切换；菜单可关
+- 🌫️ **Duo 合盖模糊**：读取 MacBook 内置的铰链角度传感器（HID Sensor 0x20/0x8A），合盖过程中屏幕随角度实时渐变模糊 + 暗化（100° 起雾、40° 拉满），复刻 iPhone Duo 折叠时的液态玻璃效果；重新打开反向消散。调试：`SleepCat --lid-angle` 打印实时角度
 - 模板图标，自动适配深浅色菜单栏
 - 崩溃自愈：异常退出残留的"禁止休眠"状态会在下次启动时自动恢复
 
