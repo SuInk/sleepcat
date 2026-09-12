@@ -37,6 +37,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let blocker = SleepBlocker()
     private let lidBlocker = LidBlocker()
+    private let island = NotchIsland()
     private var offTimer: Timer?
     private var menuRefreshTimer: Timer?
     private var deadline: Date?
@@ -63,6 +64,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
         get { UserDefaults.standard.bool(forKey: "lidSetByUs") }
         set { UserDefaults.standard.set(newValue, forKey: "lidSetByUs") }
     }
+    /// Duo 岛（刘海灵动岛），默认开启
+    private var duoEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: "duoEnabled") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "duoEnabled") }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -76,6 +82,24 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
             lidBlocker.trySilentRestore()
             if !lidBlocker.isActive { lidSetByUs = false }
         }
+
+        island.statusProvider = { [weak self] in
+            guard let self else { return .init(active: false, title: "SleepCat", detail: "") }
+            if self.blocker.isActive {
+                var detail = self.deadline.map { "还剩 \(Self.format($0.timeIntervalSinceNow))" } ?? "无限期"
+                if self.lidBlocker.isActive { detail += " · 含合盖" }
+                return .init(active: true, title: "喵住中", detail: detail + " · 点按停止")
+            }
+            return .init(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住")
+        }
+        island.onToggle = { [weak self] in self?.toggle() }
+        if duoEnabled {
+            island.start()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.island.peek()  // 启动时探出来打个招呼
+            }
+        }
+
         updateIcon()
     }
 
@@ -118,6 +142,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
         }
         playSound(awake: true)
         updateIcon()
+        island.peek()
     }
 
     private func deactivate() {
@@ -128,6 +153,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
         deadline = nil
         playSound(awake: false)
         updateIcon()
+        island.peek()
     }
 
     private func playSound(awake: Bool) {
@@ -142,6 +168,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
     private func updateIcon() {
         guard let button = statusItem.button else { return }
         button.image = blocker.isActive ? CatIcon.awake : CatIcon.asleep
+        island.refresh()
         button.toolTip = blocker.isActive
             ? "SleepCat：正在喵住你的 Mac（点击放它去睡）"
             : "SleepCat：猫猫在打盹，Mac 可以正常休眠（点击叫醒）"
@@ -207,6 +234,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
         soundItem.state = soundEnabled ? .on : .off
         menu.addItem(soundItem)
 
+        let duoItem = makeItem("🏝️ Duo 岛（刘海悬停展开）", #selector(toggleDuoSetting))
+        duoItem.state = duoEnabled ? .on : .off
+        menu.addItem(duoItem)
+
         menu.addItem(.separator())
         menu.addItem(makeItem("退出 SleepCat", #selector(quit), key: "q"))
 
@@ -245,6 +276,16 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleSoundSetting() { soundEnabled.toggle() }
+
+    @objc private func toggleDuoSetting() {
+        duoEnabled.toggle()
+        if duoEnabled {
+            island.start()
+            island.peek()
+        } else {
+            island.stop()
+        }
+    }
 
     @objc private func toggleLidSetting() {
         if !lidBlockEnabled {
@@ -355,6 +396,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--dump-icons") {
         ? CommandLine.arguments[flagIndex + 1] : "."
     CatIcon.dump(toDirectory: dir)
     try? MeowSound.wavData().write(to: URL(fileURLWithPath: "\(dir)/meow.wav"))
+    NotchIsland.renderPreview(toDirectory: dir)
     exit(0)
 }
 

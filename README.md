@@ -17,6 +17,7 @@ A cat in your menu bar that keeps your Mac awake — including with the lid clos
   - 🔒 **合盖也不休眠**：用 `pmset disablesleep` 挡住合盖强制休眠
   - 同时保持屏幕常亮（可选，默认只防系统休眠）
   - 音效：喵（代码合成）/ 呼噜（默认关闭）
+- 🏝️ **Duo 岛**：把 MacBook 刘海当灵动岛用（iPhone Duo 风格）——平时隐身，鼠标悬停到刘海或喵住状态变化时流畅展开成黑色胶囊，显示猫猫状态和剩余时间，点按直接切换；菜单可关
 - 模板图标，自动适配深浅色菜单栏
 - 崩溃自愈：异常退出残留的"禁止休眠"状态会在下次启动时自动恢复
 
