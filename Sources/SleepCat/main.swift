@@ -42,6 +42,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
     private let blocker = SleepBlocker()
     private let lidBlocker = LidBlocker()
     private let island = NotchIsland()
+    private var duoBlur: DuoBlur?
     private var offTimer: Timer?
     private var menuRefreshTimer: Timer?
     private var deadline: Date?
@@ -73,6 +74,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
         get { UserDefaults.standard.object(forKey: "duoEnabled") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "duoEnabled") }
     }
+    /// Duo 合盖模糊（铰链传感器联动），默认开启
+    private var duoBlurEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: "duoBlurEnabled") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "duoBlurEnabled") }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -103,6 +109,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
                 self?.island.peek()  // 启动时探出来打个招呼
             }
         }
+
+        duoBlur = DuoBlur(sensor: LidAngleSensor())
+        if duoBlurEnabled { duoBlur?.start() }
 
         updateIcon()
     }
@@ -242,6 +251,16 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
         duoItem.state = duoEnabled ? .on : .off
         menu.addItem(duoItem)
 
+        if duoBlur != nil {
+            let blurItem = makeItem("🌫️ Duo 合盖模糊（铰链联动）", #selector(toggleDuoBlurSetting))
+            blurItem.state = duoBlurEnabled ? .on : .off
+            menu.addItem(blurItem)
+        } else {
+            let blurItem = NSMenuItem(title: "🌫️ Duo 合盖模糊（无铰链传感器）", action: nil, keyEquivalent: "")
+            blurItem.isEnabled = false
+            menu.addItem(blurItem)
+        }
+
         menu.addItem(.separator())
         menu.addItem(makeItem("退出 SleepCat", #selector(quit), key: "q"))
 
@@ -280,6 +299,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleSoundSetting() { soundEnabled.toggle() }
+
+    @objc private func toggleDuoBlurSetting() {
+        duoBlurEnabled.toggle()
+        if duoBlurEnabled {
+            duoBlur?.start()
+        } else {
+            duoBlur?.stop()
+        }
+    }
 
     @objc private func toggleDuoSetting() {
         duoEnabled.toggle()
@@ -393,6 +421,19 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
 }
 
 // MARK: - 启动
+
+// 调试：./SleepCat --lid-angle 连续打印铰链角度传感器读数后退出
+if CommandLine.arguments.contains("--lid-angle") {
+    guard let sensor = LidAngleSensor() else {
+        print("没有找到铰链角度传感器")
+        exit(1)
+    }
+    for _ in 0..<8 {
+        sensor.debugDump()
+        Thread.sleep(forTimeInterval: 0.4)
+    }
+    exit(0)
+}
 
 // 调试：./SleepCat --dump-icons <目录> 把图标渲染成 PNG 后退出
 if let flagIndex = CommandLine.arguments.firstIndex(of: "--dump-icons") {

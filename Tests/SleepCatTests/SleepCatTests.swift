@@ -65,6 +65,31 @@ import AppKit
     }
 }
 
+@Suite struct DuoBlurMappingTests {
+    @Test func fullyOpenIsClear() {
+        #expect(DuoBlur.progress(forAngle: 130) == 0)
+        #expect(DuoBlur.progress(forAngle: 100) == 0)
+    }
+
+    @Test func closingRampsUp() {
+        #expect(DuoBlur.progress(forAngle: 70) == 0.5)
+        #expect(abs(DuoBlur.progress(forAngle: 85) - 0.25) < 0.0001)
+    }
+
+    @Test func nearClosedIsFullyBlurred() {
+        #expect(DuoBlur.progress(forAngle: 40) == 1)
+        #expect(DuoBlur.progress(forAngle: 5) == 1)
+        #expect(DuoBlur.progress(forAngle: 0) == 1)
+    }
+
+    @Test func neverOutOfRange() {
+        for angle in stride(from: -10.0, through: 360.0, by: 5) {
+            let p = DuoBlur.progress(forAngle: angle)
+            #expect(p >= 0 && p <= 1)
+        }
+    }
+}
+
 @Suite struct SleepBlockerTests {
     @Test func assertionLifecycle() {
         let b = SleepBlocker()
