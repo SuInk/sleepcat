@@ -33,7 +33,7 @@ final class SleepBlocker {
 
 // MARK: - 应用主体
 
-final class SleepCatApp: NSObject, NSApplicationDelegate {
+final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let blocker = SleepBlocker()
     private let lidBlocker = LidBlocker()
@@ -42,6 +42,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
     private var offTimer: Timer?
     private var menuRefreshTimer: Timer?
     private var deadline: Date?
+    private var headerItem: NSMenuItem?
+    private var activePreset: Int?   // 当前生效的定时预设（分钟）
 
     // 偏好
     private var keepDisplayOn: Bool {
@@ -130,8 +132,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// duration 为 nil 表示无限期
+    /// duration 为 nil 表示无限期（定时预设由 menuActivateTimed 先行设置）
     private func activate(duration: TimeInterval?) {
+        if duration == nil { activePreset = nil }
         blocker.start(keepDisplayOn: keepDisplayOn)
         if lidBlockEnabled {
             if let err = lidBlocker.set(true) {
@@ -160,6 +163,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
         offTimer?.invalidate()
         offTimer = nil
         deadline = nil
+        activePreset = nil
         playSound(awake: false)
         updateIcon()
         island.peek()
@@ -185,91 +189,192 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
 
     // MARK: 菜单
 
+    private let presets: [(String, Int)] = [
+        ("15 分钟", 15), ("30 分钟", 30), ("1 小时", 60), ("2 小时", 120), ("4 小时", 240),
+    ]
+
     private func showMenu() {
-        let menu = NSMenu()
-
-        var statusTitle: String
-        if blocker.isActive {
-            if let deadline {
-                statusTitle = "😼 喵住中 · 还剩 \(Self.format(deadline.timeIntervalSinceNow))"
-            } else {
-                statusTitle = "😼 喵住中 · 无限期"
-            }
-            if lidBlocker.isActive { statusTitle += " · 含合盖" }
-        } else {
-            statusTitle = "🐱 打盹中 · 允许 Mac 休眠"
-            if lidBlocker.isActive { statusTitle = "⚠️ 系统休眠仍被禁用（pmset disablesleep）" }
-        }
-        let statusLine = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
-        statusLine.isEnabled = false
-        menu.addItem(statusLine)
-        menu.addItem(.separator())
-
-        if blocker.isActive {
-            menu.addItem(makeItem("💤 放猫猫去睡（停止）", #selector(menuDeactivate)))
-        } else {
-            menu.addItem(makeItem("☕️ 无限期喵住", #selector(menuActivateForever)))
-        }
-
-        let timedMenu = NSMenu()
-        for (label, minutes) in [("15 分钟", 15), ("30 分钟", 30), ("1 小时", 60), ("2 小时", 120), ("4 小时", 240)] {
-            let item = makeItem(label, #selector(menuActivateTimed(_:)))
-            item.tag = minutes
-            timedMenu.addItem(item)
-        }
-        let timedRoot = NSMenuItem(title: "⏰ 定时喵住", action: nil, keyEquivalent: "")
-        menu.addItem(timedRoot)
-        menu.setSubmenu(timedMenu, for: timedRoot)
-
-        menu.addItem(.separator())
-
-        let displayItem = makeItem("同时保持屏幕常亮", #selector(toggleDisplaySetting))
-        displayItem.state = keepDisplayOn ? .on : .off
-        menu.addItem(displayItem)
-
-        let lidItem = makeItem("🔒 合盖也不休眠", #selector(toggleLidSetting))
-        lidItem.state = lidBlockEnabled ? .on : .off
-        menu.addItem(lidItem)
-
-        let hasFreePass = lidBlocker.freePassInstalled()
-        let fpItem = makeItem(
-            hasFreePass ? "卸载合盖免密规则" : "安装合盖免密规则（一次授权）",
-            #selector(toggleFreePass)
-        )
-        fpItem.indentationLevel = 1
-        menu.addItem(fpItem)
-
-        let soundItem = makeItem("音效：喵 / 呼噜 🔉", #selector(toggleSoundSetting))
-        soundItem.state = soundEnabled ? .on : .off
-        menu.addItem(soundItem)
-
-        let duoItem = makeItem("🏝️ Duo 岛（刘海悬停展开）", #selector(toggleDuoSetting))
-        duoItem.state = duoEnabled ? .on : .off
-        menu.addItem(duoItem)
-
-        if duoBlur != nil {
-            let blurItem = makeItem("🌫️ Duo 合盖模糊（铰链联动）", #selector(toggleDuoBlurSetting))
-            blurItem.state = duoBlurEnabled ? .on : .off
-            menu.addItem(blurItem)
-        } else {
-            let blurItem = NSMenuItem(title: "🌫️ Duo 合盖模糊（无铰链传感器）", action: nil, keyEquivalent: "")
-            blurItem.isEnabled = false
-            menu.addItem(blurItem)
-        }
-
-        menu.addItem(.separator())
-        menu.addItem(makeItem("退出 SleepCat", #selector(quit), key: "q"))
-
-        // 弹出菜单期间每秒刷新剩余时间
+        let menu = buildMenu()
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil  // 用完摘掉，否则左键也会弹菜单
+    }
+
+    func buildMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+
+        headerItem = makeHeaderItem()
+        menu.addItem(headerItem!)
+        menu.addItem(.separator())
+
+        // ── 主操作 ──
+        if blocker.isActive {
+            let stop = makeItem("放猫猫去睡", #selector(menuDeactivate))
+            stop.image = symbol("moon.zzz.fill")
+            menu.addItem(stop)
+        } else {
+            let start = makeItem("立即喵住", #selector(menuActivateForever))
+            start.image = symbol("cup.and.saucer.fill")
+            menu.addItem(start)
+        }
+
+        let timedRoot = NSMenuItem(title: "喵住时长", action: nil, keyEquivalent: "")
+        timedRoot.image = symbol("timer")
+        let timedMenu = NSMenu()
+        let forever = makeItem("无限期", #selector(menuActivateForever))
+        forever.state = (blocker.isActive && deadline == nil) ? .on : .off
+        timedMenu.addItem(forever)
+        timedMenu.addItem(.separator())
+        for (label, minutes) in presets {
+            let item = makeItem(label, #selector(menuActivateTimed(_:)))
+            item.tag = minutes
+            item.state = (blocker.isActive && activePreset == minutes) ? .on : .off
+            timedMenu.addItem(item)
+        }
+        menu.addItem(timedRoot)
+        menu.setSubmenu(timedMenu, for: timedRoot)
+
+        // ── 喵住设置 ──
+        menu.addItem(sectionHeader("喵住设置"))
+
+        let displayItem = makeItem("保持屏幕常亮", #selector(toggleDisplaySetting))
+        displayItem.state = keepDisplayOn ? .on : .off
+        displayItem.toolTip = "关闭时只阻止系统休眠，屏幕仍可自动关闭"
+        menu.addItem(displayItem)
+
+        let lidItem = makeItem("合盖也不休眠", #selector(toggleLidSetting))
+        lidItem.state = lidBlockEnabled ? .on : .off
+        lidItem.toolTip = "需要管理员权限执行 pmset disablesleep"
+        menu.addItem(lidItem)
+
+        if lidBlockEnabled {
+            let hasFreePass = lidBlocker.freePassInstalled()
+            let fpItem = makeItem(hasFreePass ? "免密切换（已授权）" : "免密切换（未授权，每次输密码）",
+                                  #selector(toggleFreePass))
+            fpItem.state = hasFreePass ? .on : .off
+            fpItem.indentationLevel = 1
+            fpItem.toolTip = hasFreePass
+                ? "点按可移除 /etc/sudoers.d/sleepcat 规则"
+                : "点按安装一条只放行 pmset disablesleep 的 sudoers 规则"
+            menu.addItem(fpItem)
+        }
+
+        // ── 效果与提示 ──
+        menu.addItem(sectionHeader("效果与提示"))
+
+        let duoItem = makeItem("刘海灵动岛", #selector(toggleDuoSetting))
+        duoItem.state = duoEnabled ? .on : .off
+        duoItem.toolTip = "鼠标悬停刘海展开状态胶囊，点按可切换"
+        menu.addItem(duoItem)
+
+        let blurItem = makeItem("合盖渐变模糊", #selector(toggleDuoBlurSetting))
+        if duoBlur != nil {
+            blurItem.state = duoBlurEnabled ? .on : .off
+            blurItem.toolTip = "跟随铰链角度实时模糊屏幕"
+        } else {
+            blurItem.action = nil
+            blurItem.isEnabled = false
+            blurItem.toolTip = "这台 Mac 没有铰链角度传感器"
+        }
+        menu.addItem(blurItem)
+
+        let soundItem = makeItem("切换时播放喵声", #selector(toggleSoundSetting))
+        soundItem.state = soundEnabled ? .on : .off
+        menu.addItem(soundItem)
+
+        // ── 关于 / 退出 ──
+        menu.addItem(.separator())
+        menu.addItem(makeItem("项目主页…", #selector(openHomepage)))
+        menu.addItem(makeItem("退出 SleepCat", #selector(quit), key: "q"))
+
+        return menu
+    }
+
+    /// 调试：把菜单结构打成文本，检查分组、缩进、勾选、启用状态
+    static func dumpMenu() {
+        let app = SleepCatApp()
+        app.duoBlur = DuoBlur(sensor: LidAngleSensor())
+        func walk(_ menu: NSMenu, depth: Int) {
+            for item in menu.items {
+                if item.isSeparatorItem {
+                    print(String(repeating: "  ", count: depth) + "───────")
+                    continue
+                }
+                let title = item.attributedTitle?.string ?? item.title
+                var marks: [String] = []
+                if item.state == .on { marks.append("✓") }
+                if !item.isEnabled { marks.append("灰") }
+                if item.image != nil { marks.append("图") }
+                if item.hasSubmenu { marks.append("▸") }
+                let pad = String(repeating: "  ", count: depth + item.indentationLevel)
+                let suffix = marks.isEmpty ? "" : "  [\(marks.joined(separator: " "))]"
+                print(pad + title.replacingOccurrences(of: "\n", with: " / ") + suffix)
+                if let sub = item.submenu { walk(sub, depth: depth + 1) }
+            }
+        }
+        walk(app.buildMenu(), depth: 0)
     }
 
     private func makeItem(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
         return item
+    }
+
+    private func symbol(_ name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
+    /// 分组标题（macOS 14+ 用原生 section header，老系统退化为灰色小标题）
+    private func sectionHeader(_ title: String) -> NSMenuItem {
+        if #available(macOS 14.0, *) { return .sectionHeader(title: title) }
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ])
+        return item
+    }
+
+    /// 两行状态头：猫图标 + 主状态 + 次要说明（禁用态也保持彩色，靠 attributedTitle）
+    private func makeHeaderItem() -> NSMenuItem {
+        let item = NSMenuItem()
+        item.isEnabled = false
+        item.image = blocker.isActive ? CatIcon.awake : CatIcon.asleep
+        item.toolTip = "左键点菜单栏的猫猫可直接切换"
+        item.attributedTitle = headerTitle()
+        return item
+    }
+
+    private func headerTitle() -> NSAttributedString {
+        let title: String
+        var detail: String
+        if blocker.isActive {
+            title = "喵住中"
+            detail = deadline.map { "还剩 \(Self.format($0.timeIntervalSinceNow))" } ?? "无限期"
+            if lidBlocker.isActive { detail += " · 含合盖防护" }
+        } else if lidBlocker.isActive {
+            title = "打盹中（系统休眠仍被禁用）"
+            detail = "pmset disablesleep 未恢复，点合盖开关可修复"
+        } else {
+            title = "打盹中"
+            detail = "Mac 可正常休眠"
+        }
+        let s = NSMutableAttributedString(string: title + "\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: NSColor.labelColor,
+        ])
+        s.append(NSAttributedString(string: detail, attributes: [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]))
+        return s
+    }
+
+    @objc private func openHomepage() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/SuInk/sleepcat")!)
     }
 
     private static func format(_ seconds: TimeInterval) -> String {
@@ -284,7 +389,26 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
     @objc private func menuDeactivate() { deactivate() }
 
     @objc private func menuActivateTimed(_ sender: NSMenuItem) {
+        activePreset = sender.tag
         activate(duration: TimeInterval(sender.tag * 60))
+    }
+
+    // MARK: NSMenuDelegate —— 菜单打开期间每秒刷新倒计时
+
+    func menuWillOpen(_ menu: NSMenu) {
+        menuRefreshTimer?.invalidate()
+        guard blocker.isActive, deadline != nil else { return }
+        menuRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.headerItem?.attributedTitle = self.headerTitle()
+        }
+        RunLoop.current.add(menuRefreshTimer!, forMode: .common)  // 菜单会切到 eventTracking 模式
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuRefreshTimer?.invalidate()
+        menuRefreshTimer = nil
+        headerItem = nil
     }
 
     @objc private func toggleDisplaySetting() {
@@ -317,8 +441,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
 
     @objc private func toggleLidSetting() {
         if !lidBlockEnabled {
-            // 只要免密规则还没装，开启时就给安装机会（不再只弹一次）
-            if !lidBlocker.freePassInstalled() {
+            // 首次开启且没装免密规则时才解释一次；之后菜单里的「免密切换」随时可装
+            if !lidBlocker.freePassInstalled() && !lidWarningShown {
                 NSApp.activate(ignoringOtherApps: true)
                 let alert = NSAlert()
                 alert.messageText = "开启「合盖也不休眠」？"
@@ -417,6 +541,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate {
 }
 
 // MARK: - 启动
+
+// 调试：./SleepCat --dump-menu 打印菜单结构后退出
+if CommandLine.arguments.contains("--dump-menu") {
+    SleepCatApp.dumpMenu()
+    exit(0)
+}
 
 // 调试：./SleepCat --lid-angle 连续打印铰链角度传感器读数后退出
 if CommandLine.arguments.contains("--lid-angle") {
