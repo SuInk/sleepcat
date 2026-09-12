@@ -72,9 +72,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         get { UserDefaults.standard.bool(forKey: "lidSetByUs") }
         set { UserDefaults.standard.set(newValue, forKey: "lidSetByUs") }
     }
-    /// Duo 岛（刘海灵动岛），默认开启
+    /// Duo 岛（刘海灵动岛）。悬停就展开面板比较打扰，默认关闭、按需开启
     private var duoEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: "duoEnabled") as? Bool ?? true }
+        get { UserDefaults.standard.object(forKey: "duoEnabled") as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: "duoEnabled") }
     }
     /// Duo 合盖模糊（铰链传感器联动），默认开启
