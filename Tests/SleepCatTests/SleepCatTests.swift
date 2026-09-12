@@ -78,6 +78,16 @@ import AppKit
         #expect(DuoBlur.progress(forAngle: 0) == 1)
     }
 
+    @Test func blurIsProgressiveFromHingeToTop() {
+        // 靠铰链的底部最清晰，越往上叠的模糊层越多，且单调递增
+        let samples = stride(from: 0.0, through: 1.0, by: 0.1).map { DuoBlur.blurDepth(atHeight: $0) }
+        #expect(samples.first! < 0.5, "底部应接近清晰")
+        #expect(samples.last! == Double(DuoBlur.blurBands.count), "顶部应叠满所有层")
+        for (a, b) in zip(samples, samples.dropFirst()) {
+            #expect(b >= a, "模糊强度不能出现回落")
+        }
+    }
+
     @Test func neverOutOfRange() {
         for angle in stride(from: -10.0, through: 360.0, by: 5) {
             let p = DuoBlur.progress(forAngle: angle)
