@@ -692,6 +692,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         blocker.stop()
         restoreLidSleepIfNeeded()
         clearSession()
+        duoBlur?.stop()   // 确保光标一定还给用户
     }
 }
 

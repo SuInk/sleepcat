@@ -88,6 +88,13 @@ import AppKit
         }
     }
 
+    @Test func cursorOnlyHidesOnceWellIntoTheFold() {
+        #expect(!DuoBlur.shouldHideCursor(progress: 0))
+        #expect(!DuoBlur.shouldHideCursor(progress: 0.4), "刚起雾时用户可能还在操作")
+        #expect(DuoBlur.shouldHideCursor(progress: 0.8))
+        #expect(DuoBlur.shouldHideCursor(progress: 1))
+    }
+
     @Test func neverOutOfRange() {
         for angle in stride(from: -10.0, through: 360.0, by: 5) {
             let p = DuoBlur.progress(forAngle: angle)

@@ -8,6 +8,11 @@ final class DuoBlur {
     private var timer: Timer?
     private var currentAlpha: CGFloat = 0
     private var voidLayer: CALayer?   // 暗场：越接近合死越黑
+    private var cursorHidden = false
+
+    /// 光标由窗口服务器画在所有窗口之上，覆盖层盖不住它，只能显式隐藏。
+    /// 起雾初期还留着（用户可能正在操作），糊到一半以后才收走。
+    static func shouldHideCursor(progress: Double) -> Bool { progress > 0.5 }
 
     /// 分层模糊的遮罩区间（单位坐标，0=屏幕底部即铰链侧，1=顶部）。
     /// 层层叠加，越靠顶部经过的模糊层越多 → 渐进模糊，而不是一片均匀糊。
@@ -47,7 +52,21 @@ final class DuoBlur {
         timer?.invalidate()
         timer = nil
         currentAlpha = 0
+        setCursorHidden(false)
         window?.orderOut(nil)
+    }
+
+    deinit { setCursorHidden(false) }   // 绝不能把用户的光标弄丢
+
+    /// 隐藏是计数式的，必须严格成对，否则光标再也回不来
+    private func setCursorHidden(_ hide: Bool) {
+        guard hide != cursorHidden else { return }
+        if hide {
+            CGDisplayHideCursor(CGMainDisplayID())
+        } else {
+            CGDisplayShowCursor(CGMainDisplayID())
+        }
+        cursorHidden = hide
     }
 
     // MARK: - 驱动
@@ -58,9 +77,11 @@ final class DuoBlur {
         currentAlpha += (target - currentAlpha) * 0.45  // 平滑跟随，避免传感器抖动
         if target == 0 && currentAlpha < 0.02 {
             currentAlpha = 0
+            setCursorHidden(false)
             window?.orderOut(nil)
             return
         }
+        setCursorHidden(Self.shouldHideCursor(progress: Double(currentAlpha)))
         if window == nil { window = makeWindow() }
         if let w = window {
             if !w.isVisible { w.orderFrontRegardless() }
