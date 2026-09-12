@@ -38,6 +38,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let blocker = SleepBlocker()
     private let lidBlocker = LidBlocker()
     private let island = NotchIsland()
+    private let lidSensor = LidAngleSensor()   // 同一个 HID 设备只开一次，模糊和看门狗共用
     private var duoBlur: DuoBlur?
     private var offTimer: Timer?
     private var menuRefreshTimer: Timer?
@@ -105,7 +106,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
-        duoBlur = DuoBlur(sensor: LidAngleSensor())
+        duoBlur = DuoBlur(sensor: lidSensor)
         if duoBlurEnabled { duoBlur?.start() }
 
         // 上次的喵住被强杀/崩溃打断 → 接着喵，而不是静默放 Mac 去睡。
@@ -620,16 +621,36 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// 合盖防护看门狗：系统会在睡眠/唤醒等时机把 disablesleep 清回 0，
-    /// 只设一次是守不住的，喵住期间要持续盯着补回来。
+    /// 合盖防护看门狗。
+    ///
+    /// 按理说 disablesleep 设一次就该管到重启（其他项目都这么假设），但这台机器上
+    /// 实测被外部清掉过：23:31 设成 1 并验证通过，期间我们没动过、也没重启，
+    /// 到 00:49 读回来已经是 0，中间两次合盖就这么睡了。
+    ///
+    /// 所以与其盲目定时轮询，不如盯住真正要紧的那一刻：**盖子开始合上的瞬间**。
+    /// 铰链角度我们本来就在读，顺带用它当触发器；再配一个慢速兜底和唤醒补偿。
     private func startLidWatchdog() {
         lidWatchdog?.invalidate()
         guard lidBlockEnabled else { return }
-        lidWatchdog = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+        var lastAngle = lidSensor?.angle() ?? 180
+        var lastSweep = Date.distantPast
+
+        lidWatchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self, self.blocker.isActive, self.lidBlockEnabled else { return }
+            let angle = self.lidSensor?.angle()
+
+            // 触发点一：盖子正在往下合（跨过 100°）——此刻必须确保防护在位
+            let closing = (angle.map { $0 < 100 && lastAngle >= 100 }) ?? false
+            if let angle { lastAngle = angle }
+
+            // 触发点二：每 30 秒兜底核对一次，覆盖传感器读不到的机型
+            let sweepDue = Date().timeIntervalSince(lastSweep) > 30
+            guard closing || sweepDue else { return }
+            lastSweep = Date()
             if self.lidBlocker.reassertIfCleared() { self.lidSetByUs = true }
         }
-        // 唤醒瞬间是被清掉的高发时刻，立刻补一次，别等下一个轮询周期
+
+        // 触发点三：唤醒瞬间
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(systemDidWake),
             name: NSWorkspace.didWakeNotification, object: nil)
