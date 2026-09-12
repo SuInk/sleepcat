@@ -47,6 +47,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var menuRefreshTimer: Timer?
     private var deadline: Date?
     private var headerItem: NSMenuItem?
+    private var heartbeatTimer: Timer?
     private var activePreset: Int?   // 当前生效的定时预设（分钟）
 
     // 偏好
@@ -90,12 +91,6 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        // 崩溃自愈：上次是我们禁用了休眠但没恢复（崩溃/强退），免密可用时静默恢复
-        if lidBlocker.isActive && lidSetByUs {
-            lidBlocker.trySilentRestore()
-            if !lidBlocker.isActive { lidSetByUs = false }
-        }
-
         island.statusProvider = { [weak self] in
             guard let self else { return .init(active: false, title: "SleepCat", detail: "") }
             if self.blocker.isActive {
@@ -115,6 +110,13 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         duoBlur = DuoBlur(sensor: LidAngleSensor())
         if duoBlurEnabled { duoBlur?.start() }
+
+        // 上次的喵住被强杀/崩溃打断 → 接着喵，而不是静默放 Mac 去睡。
+        // 只有在没有会话可恢复时，才清掉上次残留的"禁止休眠"。
+        if !resumeInterruptedSession(), lidBlocker.isActive, lidSetByUs {
+            lidBlocker.trySilentRestore()
+            if !lidBlocker.isActive { lidSetByUs = false }
+        }
 
         updateIcon()
 
@@ -156,8 +158,62 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: 会话持久化
+    //
+    // 应用被强杀或崩溃时，喵住会话不能就这么没了：那会让 disablesleep 被下次启动
+    // 的自愈逻辑清掉，用户合着盖子的 Mac 就直接睡了。这里把会话存下来，
+    // 靠心跳区分"刚刚被打断"和"上次开机时的旧会话"。
+
+    private static let sessionActiveKey = "sessionActive"
+    private static let sessionDeadlineKey = "sessionDeadline"
+    private static let sessionPresetKey = "sessionPreset"
+    private static let sessionBeatKey = "sessionHeartbeat"
+
+    /// 会话是否值得恢复：必须有新鲜心跳（默认 5 分钟内），且定时还没到点
+    static func shouldResume(active: Bool, heartbeat: Date?, deadline: Date?,
+                             now: Date = Date(), maxGap: TimeInterval = 300) -> Bool {
+        guard active, let heartbeat, now.timeIntervalSince(heartbeat) < maxGap else { return false }
+        if let deadline, deadline <= now { return false }
+        return true
+    }
+
+    private func saveSession() {
+        let d = UserDefaults.standard
+        d.set(true, forKey: Self.sessionActiveKey)
+        d.set(deadline, forKey: Self.sessionDeadlineKey)
+        d.set(activePreset, forKey: Self.sessionPresetKey)
+        d.set(Date(), forKey: Self.sessionBeatKey)
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+            UserDefaults.standard.set(Date(), forKey: Self.sessionBeatKey)
+        }
+    }
+
+    private func clearSession() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
+        let d = UserDefaults.standard
+        [Self.sessionActiveKey, Self.sessionDeadlineKey,
+         Self.sessionPresetKey, Self.sessionBeatKey].forEach { d.removeObject(forKey: $0) }
+    }
+
+    @discardableResult
+    private func resumeInterruptedSession() -> Bool {
+        let d = UserDefaults.standard
+        let saved = d.object(forKey: Self.sessionDeadlineKey) as? Date
+        guard Self.shouldResume(active: d.bool(forKey: Self.sessionActiveKey),
+                                heartbeat: d.object(forKey: Self.sessionBeatKey) as? Date,
+                                deadline: saved) else {
+            clearSession()
+            return false
+        }
+        activePreset = d.object(forKey: Self.sessionPresetKey) as? Int
+        activate(duration: saved?.timeIntervalSinceNow, resumed: true)
+        return true
+    }
+
     /// duration 为 nil 表示无限期（定时预设由 menuActivateTimed 先行设置）
-    private func activate(duration: TimeInterval?) {
+    private func activate(duration: TimeInterval?, resumed: Bool = false) {
         if duration == nil { activePreset = nil }
         blocker.start(keepDisplayOn: keepDisplayOn)
         if lidBlockEnabled {
@@ -176,7 +232,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             deadline = nil
         }
-        playSound(awake: true)
+        saveSession()
+        if !resumed { playSound(awake: true) }   // 恢复会话时不喵，免得启动就叫
         updateIcon()
         island.peek()
     }
@@ -188,6 +245,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         offTimer = nil
         deadline = nil
         activePreset = nil
+        clearSession()
         playSound(awake: false)
         updateIcon()
         island.peek()
@@ -555,12 +613,14 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func quit() {
         blocker.stop()
         restoreLidSleepIfNeeded()
+        clearSession()   // 主动退出＝有意结束，下次启动不该自己又喵起来
         NSApp.terminate(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         blocker.stop()
         restoreLidSleepIfNeeded()
+        clearSession()
     }
 }
 

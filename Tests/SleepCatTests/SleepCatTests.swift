@@ -90,6 +90,36 @@ import AppKit
     }
 }
 
+@Suite struct SessionResumeTests {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+
+    @Test func resumesAfterAFreshKill() {
+        #expect(SleepCatApp.shouldResume(active: true, heartbeat: now.addingTimeInterval(-20),
+                                         deadline: nil, now: now))
+    }
+
+    @Test func ignoresStaleSessionFromAPreviousBoot() {
+        // 心跳是几小时前的 → 是上次开机的旧会话，不该自己喵起来
+        #expect(!SleepCatApp.shouldResume(active: true, heartbeat: now.addingTimeInterval(-7200),
+                                          deadline: nil, now: now))
+    }
+
+    @Test func ignoresExpiredTimer() {
+        #expect(!SleepCatApp.shouldResume(active: true, heartbeat: now.addingTimeInterval(-10),
+                                          deadline: now.addingTimeInterval(-1), now: now))
+    }
+
+    @Test func resumesTimerStillRunning() {
+        #expect(SleepCatApp.shouldResume(active: true, heartbeat: now.addingTimeInterval(-10),
+                                         deadline: now.addingTimeInterval(600), now: now))
+    }
+
+    @Test func noSessionNoResume() {
+        #expect(!SleepCatApp.shouldResume(active: false, heartbeat: now, deadline: nil, now: now))
+        #expect(!SleepCatApp.shouldResume(active: true, heartbeat: nil, deadline: nil, now: now))
+    }
+}
+
 @Suite struct SleepBlockerTests {
     @Test func assertionLifecycle() {
         let b = SleepBlocker()
