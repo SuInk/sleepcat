@@ -73,27 +73,18 @@ final class DuoBlur {
         w.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         w.alphaValue = 0
 
+        // 系统菜单同款的深色液态玻璃材质，纯模糊，只留一点点暗化
         let blur = NSVisualEffectView(frame: NSRect(origin: .zero, size: screen.frame.size))
-        blur.material = .fullScreenUI
+        blur.material = .hudWindow
         blur.blendingMode = .behindWindow
         blur.state = .active
         blur.autoresizingMask = [.width, .height]
 
         let dim = NSView(frame: blur.bounds)
         dim.wantsLayer = true
-        dim.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        dim.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.15).cgColor
         dim.autoresizingMask = [.width, .height]
         blur.addSubview(dim)
-
-        let catSize = NSSize(width: 110, height: 90)
-        let cat = NSImageView(frame: NSRect(x: blur.bounds.midX - catSize.width / 2,
-                                            y: blur.bounds.midY - catSize.height / 2,
-                                            width: catSize.width, height: catSize.height))
-        cat.image = CatIcon.asleep
-        cat.contentTintColor = NSColor.white.withAlphaComponent(0.9)
-        cat.imageScaling = .scaleProportionallyUpOrDown
-        cat.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
-        blur.addSubview(cat)
 
         w.contentView = blur
         return w
