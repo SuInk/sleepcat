@@ -4,9 +4,9 @@
 
 import AppKit
 
-/// 菜单栏猫猫图标：「软乎乎的小黑猫」（设计稿 CONCEPT 02）。
+/// 菜单栏猫猫图标：「轻巧一点的小黑猫」（设计稿 CONCEPT 03）——只有一颗头，没有身子和爪子。
 /// 模板图——五官是挖空的透明洞，透出菜单栏底色：浅色模式是黑猫白五官，
-/// 深色模式系统自动反成白猫深五官，和设计稿「缩小也可爱」那栏一致。
+/// 深色模式系统自动反成白猫深五官。
 /// 腮红是彩色的，单色模板图画不出来，设计稿的小尺寸版本也没有。
 enum CatIcon {
     static let awake = make(awake: true)
@@ -25,7 +25,7 @@ enum CatIcon {
             let scale = NSAffineTransform()
             scale.scale(by: 0.2)
             scale.concat()
-            drawBody()
+            drawHead()
             ctx.compositingOperation = .destinationOut   // 下面画的都是挖空
             drawFace(awake: awake)
             NSGraphicsContext.restoreGraphicsState()
@@ -38,8 +38,8 @@ enum CatIcon {
                 drawBang(x: 20.3, y: 10.9, height: 7.0)
             } else {
                 // 大 Z 在左下、小 z 在右上；和右耳之间留出空隙，不然会粘成一团
-                drawZ(x: 17.0, y: 8.4, width: 3.0, height: 3.0, stroke: 1.35)
-                drawZ(x: 19.6, y: 13.3, width: 1.8, height: 2.0, stroke: 1.05)
+                drawZ(x: 17.3, y: 9.0, width: 3.0, height: 3.0, stroke: 1.35)
+                drawZ(x: 19.8, y: 13.6, width: 1.7, height: 1.9, stroke: 1.05)
             }
             return true
         }
@@ -47,33 +47,38 @@ enum CatIcon {
         return image
     }
 
-    /// 趴着的年糕身子 + 圆头耳朵 + 底下探出来的两只小爪子（设计坐标 110×90，y 向上）
-    private static func drawBody() {
-        // 宽扁的年糕：椭圆撑出鼓鼓的两颊，宽圆角矩形把头顶压得又宽又平
-        NSBezierPath(ovalIn: NSRect(x: 2, y: 3, width: 80, height: 44)).fill()
-        NSBezierPath(roundedRect: NSRect(x: 8, y: 14, width: 68, height: 36), xRadius: 20, yRadius: 20).fill()
+    /// 一颗圆包子头 + 两只尖耳朵（设计坐标 110×90，y 向上）。
+    /// 比例量自设计稿大图：头宽 : 头高 ≈ 1.27，最宽处在下半部分，底部圆润
+    private static func drawHead() {
+        // 最宽处压在下三分之一，从那里就开始往上收，才是圆包子而不是圆角方块
+        let head = NSBezierPath()
+        head.move(to: NSPoint(x: 40, y: 2))
+        head.curve(to: NSPoint(x: 79, y: 22), controlPoint1: NSPoint(x: 66, y: 2),
+                   controlPoint2: NSPoint(x: 79, y: 9))                    // 右下鼓出来
+        head.curve(to: NSPoint(x: 64, y: 54), controlPoint1: NSPoint(x: 79, y: 34),
+                   controlPoint2: NSPoint(x: 71, y: 50))                   // 右侧往上收窄
+        head.curve(to: NSPoint(x: 16, y: 54), controlPoint1: NSPoint(x: 54, y: 59),
+                   controlPoint2: NSPoint(x: 26, y: 59))                   // 头顶微微隆起
+        head.curve(to: NSPoint(x: 1, y: 22), controlPoint1: NSPoint(x: 9, y: 50),
+                   controlPoint2: NSPoint(x: 1, y: 34))                    // 左侧
+        head.curve(to: NSPoint(x: 40, y: 2), controlPoint1: NSPoint(x: 1, y: 9),
+                   controlPoint2: NSPoint(x: 14, y: 2))                    // 左下鼓出来
+        head.close()
+        head.fill()
 
-        // 耳朵长在头顶两角，短而圆；两耳之间留出宽宽的头顶。
-        // 三角形再用粗圆角描一圈，耳尖就是圆的；左耳更圆、右耳稍尖稍高，和设计稿一样
-        let ears: [(pts: [NSPoint], round: CGFloat)] = [
-            ([NSPoint(x: 7, y: 36), NSPoint(x: 9, y: 61), NSPoint(x: 31, y: 50)], 9),
-            ([NSPoint(x: 76, y: 36), NSPoint(x: 75, y: 63), NSPoint(x: 53, y: 50)], 6),
-        ]
-        for ear in ears {
-            let p = NSBezierPath()
-            p.move(to: ear.pts[0])
-            p.line(to: ear.pts[1])
-            p.line(to: ear.pts[2])
-            p.close()
-            p.lineJoinStyle = .round
-            p.lineWidth = ear.round
-            p.fill()
-            p.stroke()
+        // 耳朵：外沿顺着收窄的脸颊往上，内沿斜着落到头顶；三角形描粗圆角让耳尖变圆
+        for pts in [[NSPoint(x: 7, y: 40), NSPoint(x: 11, y: 71), NSPoint(x: 30, y: 56)],
+                    [NSPoint(x: 73, y: 40), NSPoint(x: 69, y: 71), NSPoint(x: 50, y: 56)]] {
+            let ear = NSBezierPath()
+            ear.move(to: pts[0])
+            ear.line(to: pts[1])
+            ear.line(to: pts[2])
+            ear.close()
+            ear.lineJoinStyle = .round
+            ear.lineWidth = 7
+            ear.fill()
+            ear.stroke()
         }
-
-        // 小爪子
-        NSBezierPath(ovalIn: NSRect(x: 15, y: 0.5, width: 20, height: 11)).fill()
-        NSBezierPath(ovalIn: NSRect(x: 49, y: 0.5, width: 20, height: 11)).fill()
     }
 
     /// 挖空的五官（调用前已切到 destinationOut）
@@ -86,42 +91,33 @@ enum CatIcon {
             build(p)
             p.stroke()
         }
-        let eyes: [CGFloat] = [27, 57]
+        let eyes: [CGFloat] = [22, 58]   // 设计稿里眼睛在头宽的 26% / 76% 处
 
         if awake {
-            // 大圆眼睛
+            // 大圆眼睛，略微竖长
             for cx in eyes {
-                NSBezierPath(ovalIn: NSRect(x: cx - 6.2, y: 25, width: 12.4, height: 12.4)).fill()
+                NSBezierPath(ovalIn: NSRect(x: cx - 6.2, y: 23, width: 12.4, height: 13.6)).fill()
             }
-            // ω 嘴：两个连着的小 U
-            stroked(3.2) { m in
-                m.move(to: NSPoint(x: 35.5, y: 26.5))
-                m.curve(to: NSPoint(x: 42, y: 25), controlPoint1: NSPoint(x: 35.5, y: 20.5),
-                        controlPoint2: NSPoint(x: 42, y: 20.5))
-                m.curve(to: NSPoint(x: 48.5, y: 26.5), controlPoint1: NSPoint(x: 42, y: 20.5),
-                        controlPoint2: NSPoint(x: 48.5, y: 20.5))
+            // ω 嘴：两个连着的小 U，比上一版小一号
+            stroked(3.0) { m in
+                m.move(to: NSPoint(x: 34.5, y: 24.5))
+                m.curve(to: NSPoint(x: 40, y: 23), controlPoint1: NSPoint(x: 34.5, y: 19),
+                        controlPoint2: NSPoint(x: 40, y: 19))
+                m.curve(to: NSPoint(x: 45.5, y: 24.5), controlPoint1: NSPoint(x: 40, y: 19),
+                        controlPoint2: NSPoint(x: 45.5, y: 19))
             }
         } else {
             // 闭着的 U 形眼睛
             for cx in eyes {
-                stroked(3.4) { e in
-                    e.move(to: NSPoint(x: cx - 6.5, y: 32))
-                    e.curve(to: NSPoint(x: cx + 6.5, y: 32), controlPoint1: NSPoint(x: cx - 5, y: 25),
-                            controlPoint2: NSPoint(x: cx + 5, y: 25))
+                stroked(3.3) { e in
+                    e.move(to: NSPoint(x: cx - 6.3, y: 31))
+                    e.curve(to: NSPoint(x: cx + 6.3, y: 31), controlPoint1: NSPoint(x: cx - 4.8, y: 24.5),
+                            controlPoint2: NSPoint(x: cx + 4.8, y: 24.5))
                 }
             }
             // 打呼的小圆圈嘴
             stroked(2.4) { o in
-                o.appendOval(in: NSRect(x: 38.8, y: 19.8, width: 6.4, height: 6.4))
-            }
-        }
-
-        // 爪子上沿的 ⌒ 分界线
-        for cx: CGFloat in [25, 59] {
-            stroked(2.6) { l in
-                l.move(to: NSPoint(x: cx - 6, y: 7))
-                l.curve(to: NSPoint(x: cx + 6, y: 7), controlPoint1: NSPoint(x: cx - 4, y: 12.5),
-                        controlPoint2: NSPoint(x: cx + 4, y: 12.5))
+                o.appendOval(in: NSRect(x: 36.8, y: 18, width: 6.4, height: 6.4))
             }
         }
     }
