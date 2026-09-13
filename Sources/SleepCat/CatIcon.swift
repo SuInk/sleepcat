@@ -10,8 +10,8 @@ enum CatIcon {
     static let asleep = make(awake: false)
 
     private static func make(awake: Bool) -> NSImage {
-        // 睡觉时右侧要飘 Zz，画布宽一点
-        let size = NSSize(width: awake ? 18 : 22, height: 18)
+        // 右上角要放 Zz 或 ！！，两种状态画布同宽，切换时图标不会左右跳
+        let size = NSSize(width: 22, height: 18)
         let image = NSImage(size: size, flipped: false) { _ in
             guard let ctx = NSGraphicsContext.current else { return true }
             NSColor.black.setFill()
@@ -61,9 +61,14 @@ enum CatIcon {
             nose.close()
             nose.fill()
 
-            // ── 睡觉时头顶飘 Zz ──
+            // ── 右上角：睡着飘 Zz，喵住冒 ！！ ──
             ctx.compositingOperation = .sourceOver
-            if !awake {
+            if awake {
+                // 两个就好：三个在 18pt 高的菜单栏里挤成一团，最右边的还会出画布。
+                // 右边那个更高，和 Zz 一样往右上方"冒"
+                drawBang(x: 16.9, y: 7.4, height: 8.2)
+                drawBang(x: 20.0, y: 8.9, height: 8.0)
+            } else {
                 drawZ("Z", at: NSPoint(x: 15.6, y: 9.0), fontSize: 7)
                 drawZ("z", at: NSPoint(x: 19.0, y: 13.6), fontSize: 5)
             }
@@ -71,6 +76,31 @@ enum CatIcon {
         }
         image.isTemplate = true
         return image
+    }
+
+    /// 一个「！」：上粗下细的竖条 + 圆点，略微右倾
+    private static func drawBang(x: CGFloat, y: CGFloat, height: CGFloat) {
+        let w: CGFloat = 1.8
+        let dot: CGFloat = 1.6
+        let gap: CGFloat = 0.9
+        NSGraphicsContext.saveGraphicsState()
+        let t = NSAffineTransform()
+        t.translateX(by: x, yBy: y)
+        t.rotate(byDegrees: -8)
+        t.concat()
+
+        NSBezierPath(ovalIn: NSRect(x: -dot / 2, y: 0, width: dot, height: dot)).fill()
+
+        let base = dot + gap
+        let top = height - w / 2
+        let bar = NSBezierPath()
+        bar.move(to: NSPoint(x: w / 2, y: top))
+        bar.appendArc(withCenter: NSPoint(x: 0, y: top), radius: w / 2, startAngle: 0, endAngle: 180)
+        bar.line(to: NSPoint(x: -w * 0.26, y: base))
+        bar.line(to: NSPoint(x: w * 0.26, y: base))
+        bar.close()
+        bar.fill()
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private static func drawZ(_ char: String, at point: NSPoint, fontSize: CGFloat) {

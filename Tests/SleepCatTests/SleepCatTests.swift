@@ -54,8 +54,9 @@ import AppKit
     }
 
     @Test func iconSizes() {
-        #expect(CatIcon.awake.size == NSSize(width: 18, height: 18))
-        #expect(CatIcon.asleep.size == NSSize(width: 22, height: 18), "睡觉图要给 Zz 留宽度")
+        // 右上角分别要放 ！！ 和 Zz；两种状态同宽，切换时菜单栏里的图标不会左右跳
+        #expect(CatIcon.awake.size == NSSize(width: 22, height: 18))
+        #expect(CatIcon.asleep.size == CatIcon.awake.size)
     }
 
     @Test func awakeAndAsleepLookDifferent() {
