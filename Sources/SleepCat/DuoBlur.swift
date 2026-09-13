@@ -4,44 +4,35 @@
 
 import AppKit
 
-/// 决定这一轮合盖该不该出模糊。
+/// 决定这一刻该不该出模糊：**只在盖子正在动的时候出现，停下就消失**。
 ///
-/// 模糊只是给"本地的人亲眼看着自己合盖"准备的。一旦有人在用这台 Mac——远程连进来、
-/// 或者外接键鼠——覆盖层就只会挡住他的屏幕（远程那边会看到一块黑屏）。
-/// 进程名单靠不住（远程软件平时就常驻后台），所以看行为：
-/// **合盖动作开始之后还有键鼠输入**，就不是本地在合盖。
+/// 模糊是给"本地的人亲眼看着自己合盖"的过程效果。盖子一旦停住，冻住的毛玻璃对谁都
+/// 没用，还会挡住远程控制或外接键鼠的人——而这些场景里盖子恰恰是不动的。
+/// 所以用"盖子在不在动"来判断，比猜"是不是有人在远程"可靠得多。
+///
+/// 同类实现（macTilt、MacBookDuo、MacBookUno）都只看角度、停在半路会一直糊着；
+/// 这里刻意不同。
 struct BlurGate {
-    static let openAngle = 100.0     // 高于此视为开着，新一轮重新判定
-    static let closedAngle = 8.0     // 低于此视为合死：本地什么都看不见，覆盖层只剩副作用
-    static let regainDrop = 15.0     // 被压制后盖子又明显往下合，说明确实是本地在合
+    static let closedAngle = 8.0            // 合死：本地什么都看不见，覆盖层只剩副作用
+    static let motionEpsilon = 1.5          // 传感器精度是整度，抖一度不算在动
+    static let settleDelay: TimeInterval = 1.0   // 合盖时手顿一下很正常，别一顿就闪没
 
-    private(set) var suppressed = false
-    private var closingSince: Date?
-    private var suppressedAt: Double?
+    private var anchorAngle: Double?
+    private var lastMotion = Date.distantPast
 
-    /// - Parameters:
-    ///   - lastInput: 最近一次键鼠输入的时刻（远程注入的事件同样算）
-    mutating func update(angle: Double, lastInput: Date, now: Date) {
-        if angle >= Self.openAngle {
-            self = BlurGate()
+    mutating func update(angle: Double, now: Date) {
+        guard let anchor = anchorAngle else {
+            anchorAngle = angle   // 第一次读数只当基准：启动时盖子本来就停着
             return
         }
-        if closingSince == nil { closingSince = now }
-
-        if suppressed, let at = suppressedAt, angle < at - Self.regainDrop {
-            suppressed = false
-            suppressedAt = nil
-            closingSince = now   // 之前的输入不再算数
-        }
-        // 留 0.5 秒余量：合盖前最后一下触控板不该算
-        if !suppressed, let since = closingSince, lastInput > since.addingTimeInterval(0.5) {
-            suppressed = true
-            suppressedAt = angle
+        if abs(angle - anchor) >= Self.motionEpsilon {
+            anchorAngle = angle
+            lastMotion = now
         }
     }
 
-    func shouldShow(angle: Double) -> Bool {
-        !suppressed && angle > Self.closedAngle
+    func shouldShow(angle: Double, now: Date) -> Bool {
+        angle > Self.closedAngle && now.timeIntervalSince(lastMotion) < Self.settleDelay
     }
 }
 
@@ -55,13 +46,6 @@ final class DuoBlur {
     private var voidLayer: CALayer?   // 暗场：越接近合死越黑
     private var cursorHidden = false
     private var gate = BlurGate()
-
-    /// 最近一次任意键鼠输入的时刻（kCGAnyInputEventType = ~0）
-    private static func lastInputDate() -> Date {
-        let anyInput = CGEventType(rawValue: ~0)!
-        let seconds = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
-        return Date().addingTimeInterval(-seconds)
-    }
 
     /// 光标由窗口服务器画在所有窗口之上，覆盖层盖不住它，只能显式隐藏。
     /// 起雾初期还留着（用户可能正在操作），糊到一半以后才收走。
@@ -126,15 +110,17 @@ final class DuoBlur {
 
     private func tick() {
         guard let angle = sensor.angle() else { return }
-        gate.update(angle: angle, lastInput: Self.lastInputDate(), now: Date())
+        let now = Date()
+        gate.update(angle: angle, now: now)
 
-        // 合死了或者有人在用：立刻撤掉，不做淡出——淡出过程远程那边是看得见的
-        guard gate.shouldShow(angle: angle) else {
+        // 合死了：立刻撤掉，本地已经看不见，留着只会挡住远程画面
+        guard angle > BlurGate.closedAngle else {
             hideNow()
             return
         }
 
-        let target = CGFloat(Self.progress(forAngle: angle))
+        // 停下了就目标归零，下面的平滑跟随会让它柔和地淡出
+        let target = gate.shouldShow(angle: angle, now: now) ? CGFloat(Self.progress(forAngle: angle)) : 0
         currentAlpha += (target - currentAlpha) * 0.45  // 平滑跟随，避免传感器抖动
         if target == 0 && currentAlpha < 0.02 {
             hideNow()
