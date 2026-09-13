@@ -706,6 +706,17 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 // MARK: - 启动
 
+// 构建用：./SleepCat --make-iconset <目录> 导出应用图标的 .iconset 后退出
+if let i = CommandLine.arguments.firstIndex(of: "--make-iconset"), CommandLine.arguments.count > i + 1 {
+    do {
+        try AppIcon.writeIconset(to: CommandLine.arguments[i + 1])
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("iconset 生成失败：\(error)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出
 if CommandLine.arguments.contains("--dump-menu") {
     SleepCatApp.dumpMenu()
