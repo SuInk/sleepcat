@@ -4,8 +4,49 @@
 
 import AppKit
 
+/// 决定这一轮合盖该不该出模糊。
+///
+/// 模糊只是给"本地的人亲眼看着自己合盖"准备的。一旦有人在用这台 Mac——远程连进来、
+/// 或者外接键鼠——覆盖层就只会挡住他的屏幕（远程那边会看到一块黑屏）。
+/// 进程名单靠不住（远程软件平时就常驻后台），所以看行为：
+/// **合盖动作开始之后还有键鼠输入**，就不是本地在合盖。
+struct BlurGate {
+    static let openAngle = 100.0     // 高于此视为开着，新一轮重新判定
+    static let closedAngle = 8.0     // 低于此视为合死：本地什么都看不见，覆盖层只剩副作用
+    static let regainDrop = 15.0     // 被压制后盖子又明显往下合，说明确实是本地在合
+
+    private(set) var suppressed = false
+    private var closingSince: Date?
+    private var suppressedAt: Double?
+
+    /// - Parameters:
+    ///   - lastInput: 最近一次键鼠输入的时刻（远程注入的事件同样算）
+    mutating func update(angle: Double, lastInput: Date, now: Date) {
+        if angle >= Self.openAngle {
+            self = BlurGate()
+            return
+        }
+        if closingSince == nil { closingSince = now }
+
+        if suppressed, let at = suppressedAt, angle < at - Self.regainDrop {
+            suppressed = false
+            suppressedAt = nil
+            closingSince = now   // 之前的输入不再算数
+        }
+        // 留 0.5 秒余量：合盖前最后一下触控板不该算
+        if !suppressed, let since = closingSince, lastInput > since.addingTimeInterval(0.5) {
+            suppressed = true
+            suppressedAt = angle
+        }
+    }
+
+    func shouldShow(angle: Double) -> Bool {
+        !suppressed && angle > Self.closedAngle
+    }
+}
+
 /// Duo 合盖模糊：铰链角度传感器驱动的全屏渐变模糊（iPhone Duo 折叠时的液态玻璃效果）。
-/// 盖子合到 100° 开始起雾，40° 模糊拉满；重新打开则反向消散。
+/// 盖子合到 100° 开始起雾，40° 模糊拉满；重新打开则反向消散。只出现在内建屏幕上。
 final class DuoBlur {
     private let sensor: LidAngleSensor
     private var window: NSWindow?
@@ -13,6 +54,14 @@ final class DuoBlur {
     private var currentAlpha: CGFloat = 0
     private var voidLayer: CALayer?   // 暗场：越接近合死越黑
     private var cursorHidden = false
+    private var gate = BlurGate()
+
+    /// 最近一次任意键鼠输入的时刻（kCGAnyInputEventType = ~0）
+    private static func lastInputDate() -> Date {
+        let anyInput = CGEventType(rawValue: ~0)!
+        let seconds = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+        return Date().addingTimeInterval(-seconds)
+    }
 
     /// 光标由窗口服务器画在所有窗口之上，覆盖层盖不住它，只能显式隐藏。
     /// 起雾初期还留着（用户可能正在操作），糊到一半以后才收走。
@@ -77,12 +126,18 @@ final class DuoBlur {
 
     private func tick() {
         guard let angle = sensor.angle() else { return }
+        gate.update(angle: angle, lastInput: Self.lastInputDate(), now: Date())
+
+        // 合死了或者有人在用：立刻撤掉，不做淡出——淡出过程远程那边是看得见的
+        guard gate.shouldShow(angle: angle) else {
+            hideNow()
+            return
+        }
+
         let target = CGFloat(Self.progress(forAngle: angle))
         currentAlpha += (target - currentAlpha) * 0.45  // 平滑跟随，避免传感器抖动
         if target == 0 && currentAlpha < 0.02 {
-            currentAlpha = 0
-            setCursorHidden(false)
-            window?.orderOut(nil)
+            hideNow()
             return
         }
         setCursorHidden(Self.shouldHideCursor(progress: Double(currentAlpha)))
@@ -98,15 +153,33 @@ final class DuoBlur {
         }
     }
 
+    /// 撤掉覆盖层并释放窗口：下次出现时重新绑定当前的内建屏幕（显示器可能插拔过）
+    private func hideNow() {
+        currentAlpha = 0
+        setCursorHidden(false)
+        window?.orderOut(nil)
+        window = nil
+        voidLayer = nil
+    }
+
     // MARK: - 覆盖层
 
-    private func makeWindow() -> NSWindow? {
-        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main else {
-            return nil
+    /// 只认内建屏幕。外接显示器合盖模式下内建屏不在列表里，这时就不该出任何覆盖层
+    private static var builtInScreen: NSScreen? {
+        NSScreen.screens.first { screen in
+            let key = NSDeviceDescriptionKey("NSScreenNumber")
+            guard let id = screen.deviceDescription[key] as? CGDirectDisplayID else { return false }
+            return CGDisplayIsBuiltin(id) != 0
         }
+    }
+
+    private func makeWindow() -> NSWindow? {
+        guard let screen = Self.builtInScreen else { return nil }
         let w = NSWindow(contentRect: screen.frame, styleMask: .borderless,
                          backing: .buffered, defer: false)
         w.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))  // 盖住一切，包括菜单栏
+        // 尽量不进屏幕共享 / 录屏。新系统上 ScreenCaptureKit 未必遵守，所以只作兜底
+        w.sharingType = .none
         w.isOpaque = false
         w.backgroundColor = .clear
         w.ignoresMouseEvents = true

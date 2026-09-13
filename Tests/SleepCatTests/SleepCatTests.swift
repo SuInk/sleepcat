@@ -188,6 +188,65 @@ import AppKit
     }
 }
 
+@Suite struct BlurGateTests {
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    func t(_ s: Double) -> Date { t0.addingTimeInterval(s) }
+
+    @Test func localCloseWithNoInputShowsBlur() {
+        var g = BlurGate()
+        let lastInput = t(-10)   // 很早之前碰过电脑
+        for (s, angle) in [(0.0, 120.0), (1, 90), (2, 60), (3, 30)] {
+            g.update(angle: angle, lastInput: lastInput, now: t(s))
+        }
+        #expect(g.shouldShow(angle: 30))
+    }
+
+    @Test func usingTrackpadRightBeforeClosingStillShowsBlur() {
+        // 典型动作：刚用完触控板，伸手去合盖——那一下输入发生在合盖开始之前
+        var g = BlurGate()
+        g.update(angle: 120, lastInput: t(0), now: t(0))
+        g.update(angle: 95, lastInput: t(0), now: t(0.3))
+        g.update(angle: 50, lastInput: t(0), now: t(1.2))
+        #expect(g.shouldShow(angle: 50))
+    }
+
+    @Test func remoteInputWhileLidIsDownSuppresses() {
+        var g = BlurGate()
+        g.update(angle: 45, lastInput: t(-60), now: t(0))
+        g.update(angle: 45, lastInput: t(5), now: t(5))   // 远程那边动了鼠标
+        #expect(!g.shouldShow(angle: 45))
+        // 远程的人停手也不该让模糊回来
+        g.update(angle: 45, lastInput: t(5), now: t(30))
+        #expect(!g.shouldShow(angle: 45))
+    }
+
+    @Test func fullyClosedNeverShows() {
+        // 合死时本地看不见任何东西，覆盖层只会挡住远程画面
+        var g = BlurGate()
+        g.update(angle: 2, lastInput: t(-600), now: t(0))
+        #expect(!g.shouldShow(angle: 2))
+    }
+
+    @Test func closingFurtherAfterSuppressionRegainsBlur() {
+        // 在 95° 打字被压制，之后真的伸手合盖——应该恢复效果
+        var g = BlurGate()
+        g.update(angle: 95, lastInput: t(-60), now: t(0))
+        g.update(angle: 95, lastInput: t(3), now: t(3))
+        #expect(!g.shouldShow(angle: 95))
+        g.update(angle: 70, lastInput: t(3), now: t(10))
+        #expect(g.shouldShow(angle: 70))
+    }
+
+    @Test func reopeningResets() {
+        var g = BlurGate()
+        g.update(angle: 45, lastInput: t(-60), now: t(0))
+        g.update(angle: 45, lastInput: t(5), now: t(5))
+        g.update(angle: 120, lastInput: t(5), now: t(8))
+        g.update(angle: 60, lastInput: t(5), now: t(9))
+        #expect(g.shouldShow(angle: 60))
+    }
+}
+
 @Suite struct SessionResumeTests {
     let now = Date(timeIntervalSince1970: 1_000_000)
 
