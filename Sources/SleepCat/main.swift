@@ -689,9 +689,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.informativeText = """
             禁用键盘要拦截系统的按键事件，macOS 规定这需要辅助功能权限。
 
-            点「去授权」后，在列表里打开 SleepCat，再回来点一次「清洁键盘…」。
+            如果设置里 SleepCat 看起来已经是打开的：那是早期版本留下的授权记录，已经失效，关掉再打开也没用。点「重新授权」会先清掉它。授权一次后，以后更新应用都不用再授权。
+
+            之后在列表里打开 SleepCat，再回来点一次「清洁键盘…」。
             """
-            alert.addButton(withTitle: "去授权")
+            alert.addButton(withTitle: "重新授权")
             alert.addButton(withTitle: "取消")
             if alert.runModal() == .alertFirstButtonReturn { KeyboardLock.requestPermission() }
             return
