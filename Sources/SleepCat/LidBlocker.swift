@@ -2,10 +2,9 @@ import AppKit
 
 /// 合盖防休眠：电源断言挡不住合盖的强制休眠，只能用 `pmset disablesleep`（需要 root）。
 ///
-/// 拿权限分两档：
-/// 1. 免密规则（推荐）：往 /etc/sudoers.d/sleepcat 装一条只放行
-///    `pmset -a disablesleep 1/0` 的 NOPASSWD 规则，装时授权一次，之后 `sudo -n` 静默切换。
-/// 2. 没装规则：每次切换用 osascript 弹系统管理员密码框。
+/// 开启合盖模式时必装一条免密规则：往 /etc/sudoers.d/sleepcat 写入只放行
+/// `pmset -a disablesleep 1/0` 的 NOPASSWD 规则，授权一次，之后 `sudo -n` 静默切换。
+/// 规则万一被外部删掉，用户主动触发的切换会回退到系统密码框；后台触发的绝不弹框。
 final class LidBlocker {
     private(set) var isActive = false
 
@@ -72,21 +71,12 @@ final class LidBlocker {
         return r.stderr.trimmed.isEmpty ? "规则安装后校验未通过" : r.stderr.trimmed
     }
 
-    /// 卸载免密规则（弹管理员密码框）。成功返回 nil。
-    func removeFreePass() -> String? {
-        let osa = "do shell script \"rm -f \(Self.sudoersPath)\" with administrator privileges"
-        let r = Self.run("/usr/bin/osascript", ["-e", osa])
-        Self.log("removeFreePass exit=\(r.exitCode) stderr=\(r.stderr.trimmed)")
-        if !freePassInstalled() { return nil }
-        if r.stderr.contains("-128") { return "已取消密码验证" }
-        return r.stderr.trimmed
-    }
-
     // MARK: - 切换
 
-    /// 切换 disablesleep：先试免密（sudo -n），不行再弹密码框。
+    /// 切换 disablesleep：先走免密（sudo -n），不行再弹密码框。
+    /// allowPrompt=false 时只走免密——后台自动触发的路径绝不能弹框，否则会连环弹窗。
     /// 成功返回 nil，失败返回可读的错误描述（用户取消也算失败）。
-    func set(_ on: Bool) -> String? {
+    func set(_ on: Bool, allowPrompt: Bool = true) -> String? {
         guard isActive != on else { return nil }
         let value = on ? "1" : "0"
 
@@ -96,6 +86,11 @@ final class LidBlocker {
             isActive = on
             Self.log("set(\(on)) via sudo -n ok")
             return nil
+        }
+        guard allowPrompt else {
+            isActive = Self.readSleepDisabled()
+            Self.log("set(\(on)) 免密失败且不允许弹框 sudo-n=\(quiet.exitCode)")
+            return "免密规则不可用"
         }
 
         // 回退：系统管理员密码框
@@ -119,7 +114,7 @@ final class LidBlocker {
         let actual = Self.readSleepDisabled()
         isActive = actual   // 先同步真实状态，否则 set() 会以为无需改动而直接跳过
         guard !actual else { return false }
-        let err = set(true)
+        let err = set(true, allowPrompt: false)
         Self.log("reassert disablesleep 被系统清掉 -> \(err ?? "已补回")")
         return err == nil
     }
