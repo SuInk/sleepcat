@@ -103,6 +103,47 @@ import AppKit
     }
 }
 
+@Suite struct DurationTests {
+    let cal: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return c
+    }()
+
+    func at(_ h: Int, _ m: Int) -> Date {
+        cal.date(from: DateComponents(year: 2026, month: 9, day: 13, hour: h, minute: m))!
+    }
+
+    @Test func durationText() {
+        #expect(DurationPicker.durationText(minutes: 45) == "45 分钟")
+        #expect(DurationPicker.durationText(minutes: 60) == "1 小时")
+        #expect(DurationPicker.durationText(minutes: 90) == "1 小时 30 分")
+        #expect(DurationPicker.durationText(minutes: 480) == "8 小时")
+    }
+
+    @Test func endTimeSameDay() {
+        #expect(DurationPicker.endTimeText(minutes: 90, from: at(14, 0), calendar: cal) == "今天 15:30")
+        #expect(DurationPicker.endTimeText(minutes: 90, from: at(14, 0), calendar: cal, showToday: false) == "15:30")
+    }
+
+    @Test func endTimeCrossesMidnight() {
+        // 晚上 8 点挂 8 小时 → 明早 4 点，这正是"挂一晚上"的典型场景
+        #expect(DurationPicker.endTimeText(minutes: 480, from: at(20, 0), calendar: cal) == "明天 04:00")
+        #expect(DurationPicker.endTimeText(minutes: 72 * 60, from: at(10, 0), calendar: cal) == "9月16日 10:00")
+    }
+
+    @Test func cjkSpacing() {
+        #expect(DurationPicker.prefixed("至", "22:39") == "至 22:39")
+        #expect(DurationPicker.prefixed("至", "明天 04:00") == "至明天 04:00")
+    }
+
+    @Test func presetsCoverAWorkdayOrANight() {
+        let minutes = SleepCatApp.presets.map(\.1)
+        #expect(minutes == minutes.sorted(), "档位要从短到长")
+        #expect(minutes.max()! >= 480, "至少要能挂一整晚")
+    }
+}
+
 @Suite struct MenuLayoutTests {
     @MainActor @Test func everyIconSharesOneColumnWidth() {
         let widths = Set(SleepCatApp().buildMenu().items.compactMap { $0.image?.size.width })
