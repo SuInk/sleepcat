@@ -284,6 +284,33 @@ import AppKit
     }
 }
 
+@Suite struct RecommendTests {
+    @Test func copiedTextCarriesTheLink() {
+        #expect(SleepCatApp.recommendationText.contains(SleepCatApp.homepage.absoluteString))
+    }
+
+    @Test func installCommandIsCompleteAndParses() throws {
+        let cmd = SleepCatApp.installCommand
+        #expect(cmd.contains("brew install --cask sleepcat"))
+        #expect(cmd.contains("xattr -dr com.apple.quarantine"), "少了这步，朋友第一次打开会被系统拦住")
+        // 真的交给 shell 做语法检查（不执行）
+        let sh = Process()
+        sh.executableURL = URL(fileURLWithPath: "/bin/bash")
+        sh.arguments = ["-n", "-c", cmd]
+        try sh.run()
+        sh.waitUntilExit()
+        #expect(sh.terminationStatus == 0)
+    }
+
+    @Test func installCommandMatchesTheReadme() throws {
+        // 推荐出去的 tap 名要和 README 写的一致，改一边忘了另一边就会装不上
+        let readme = try String(contentsOfFile: #filePath
+            .replacingOccurrences(of: "Tests/SleepCatTests/SleepCatTests.swift", with: "README.md"), encoding: .utf8)
+        #expect(readme.contains("brew tap suink/tap"))
+        #expect(SleepCatApp.installCommand.hasPrefix("brew tap suink/tap"))
+    }
+}
+
 @Suite struct LegacyDefaultsMigrationTests {
     @Test func carriesSettingsOverWithoutClobberingOrRepeating() throws {
         let legacy = "test.sleepcat.legacy.\(UUID().uuidString)"

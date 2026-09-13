@@ -392,6 +392,16 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // ── 关于 / 退出 ──
         menu.addItem(.separator())
+        let recommend = NSMenuItem(title: "推荐给朋友", action: nil, keyEquivalent: "")
+        recommend.image = symbol("heart")
+        let recommendMenu = NSMenu()
+        recommendMenu.addItem(makeItem("复制推荐语和链接", #selector(copyRecommendation), symbol: "doc.on.doc"))
+        recommendMenu.addItem(makeItem("复制 Homebrew 安装命令", #selector(copyInstallCommand), symbol: "terminal"))
+        recommendMenu.addItem(.separator())
+        recommendMenu.addItem(makeItem("通过其他方式分享…", #selector(shareRecommendation), symbol: "square.and.arrow.up"))
+        menu.addItem(recommend)
+        menu.setSubmenu(recommendMenu, for: recommend)
+
         menu.addItem(makeItem("项目主页…", #selector(openHomepage), symbol: "link"))
         menu.addItem(makeItem("退出 SleepCat", #selector(quit), symbol: "power", key: "q"))
 
@@ -514,8 +524,47 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return s
     }
 
+    // MARK: 推荐给朋友
+
+    /// 下载和安装说明都在这里。以后有了官网专页，改这一个地方就行
+    static let homepage = URL(string: "https://github.com/SuInk/sleepcat")!
+
+    static let recommendationBlurb =
+        "推荐一个 Mac 小工具 SleepCat 🐱 菜单栏里的小黑猫，点一下就能让 Mac 不休眠，合上盖子也照样跑，还能临时锁住键盘方便清洁。免费开源"
+
+    /// 发微信 / QQ 用：一段话直接带上链接
+    static var recommendationText: String { "\(recommendationBlurb)：\(homepage.absoluteString)" }
+
+    /// 一行装好。brew trust 只有 Homebrew 6 起才有，老版本没有这个命令，失败了也要继续往下装；
+    /// 最后去掉隔离标记，否则临时签名的应用第一次打开会被系统拦住
+    static let installCommand =
+        "brew tap suink/tap && (brew trust suink/tap 2>/dev/null || true) && brew install --cask sleepcat && xattr -dr com.apple.quarantine /Applications/SleepCat.app"
+
+    @objc private func copyRecommendation() {
+        copyToPasteboard(Self.recommendationText)
+        Toast.show("已复制，去粘贴给朋友吧", below: statusItem.button)
+    }
+
+    @objc private func copyInstallCommand() {
+        copyToPasteboard(Self.installCommand)
+        Toast.show("已复制安装命令，粘贴到终端就能装", below: statusItem.button)
+    }
+
+    @objc private func shareRecommendation() {
+        guard let button = statusItem.button else { return }
+        // 文字和链接分开给：信息、邮件会把链接渲染成卡片，文字里再带一遍链接就重复了
+        let picker = NSSharingServicePicker(items: [Self.recommendationBlurb as NSString, Self.homepage as NSURL])
+        picker.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
     @objc private func openHomepage() {
-        NSWorkspace.shared.open(URL(string: "https://github.com/SuInk/sleepcat")!)
+        NSWorkspace.shared.open(Self.homepage)
     }
 
     private static func format(_ seconds: TimeInterval) -> String {
