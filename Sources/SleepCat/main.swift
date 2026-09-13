@@ -82,7 +82,26 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         set { UserDefaults.standard.set(newValue, forKey: "duoBlurEnabled") }
     }
 
+    /// 用过的旧应用 ID。偏好设置和辅助功能授权都是按应用 ID 记的，换 ID 时要照顾到
+    static let legacyBundleIDs = ["com.suink.sleepcat"]
+
+    /// 把旧应用 ID 下的偏好搬到当前 ID，包括进行中的喵住会话，这样换 ID 后
+    /// 合盖模式、音效等设置不丢，正在喵住的也能无缝接上。只搬一次，不覆盖已有的值。
+    static func migrateLegacyDefaults(from legacyIDs: [String] = legacyBundleIDs,
+                                      into defaults: UserDefaults = .standard) {
+        let flag = "migratedLegacyDefaults"
+        guard !defaults.bool(forKey: flag) else { return }
+        for id in legacyIDs {
+            guard let old = UserDefaults.standard.persistentDomain(forName: id) else { continue }
+            for (key, value) in old where defaults.object(forKey: key) == nil {
+                defaults.set(value, forKey: key)
+            }
+        }
+        defaults.set(true, forKey: flag)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.migrateLegacyDefaults()   // 必须在读任何设置之前
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "SleepCat"   // 记住用户 ⌘ 拖动后的位置
         if let button = statusItem.button {
@@ -699,7 +718,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             """
             alert.addButton(withTitle: "重新授权")
             alert.addButton(withTitle: "取消")
-            if alert.runModal() == .alertFirstButtonReturn { KeyboardLock.requestPermission() }
+            if alert.runModal() == .alertFirstButtonReturn {
+                KeyboardLock.requestPermission(alsoReset: Self.legacyBundleIDs)
+            }
             return
         }
         if let err = keyboardLock.lock() {

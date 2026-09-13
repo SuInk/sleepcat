@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 swift build -c release
 
 APP="SleepCat.app"
+IDENTIFIER="com.earlyso.sleepcat"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
@@ -17,13 +18,13 @@ ICONSET="$(mktemp -d)/AppIcon.iconset"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$(dirname "$ICONSET")"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>      <string>SleepCat</string>
-    <key>CFBundleIdentifier</key>      <string>com.suink.sleepcat</string>
+    <key>CFBundleIdentifier</key>      <string>$IDENTIFIER</string>
     <key>CFBundleName</key>            <string>SleepCat</string>
     <key>CFBundleDisplayName</key>     <string>SleepCat</string>
     <key>CFBundleShortVersionString</key> <string>1.0</string>
@@ -39,7 +40,6 @@ PLIST
 
 # 临时签名默认的「指定要求」是二进制哈希，改一次代码就变，辅助功能授权随之失效。
 # 显式把指定要求写成只认应用 ID，授权就能跨构建、跨版本保留（和 diana 的做法一致）。
-IDENTIFIER="com.suink.sleepcat"
 codesign --force --sign - --identifier "$IDENTIFIER" \
     --requirements "=designated => identifier \"$IDENTIFIER\"" "$APP"
 codesign --verify --strict "$APP"

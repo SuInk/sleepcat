@@ -283,6 +283,31 @@ import AppKit
     }
 }
 
+@Suite struct LegacyDefaultsMigrationTests {
+    @Test func carriesSettingsOverWithoutClobberingOrRepeating() throws {
+        let legacy = "test.sleepcat.legacy.\(UUID().uuidString)"
+        let destName = "test.sleepcat.dest.\(UUID().uuidString)"
+        defer {
+            UserDefaults.standard.removePersistentDomain(forName: legacy)
+            UserDefaults.standard.removePersistentDomain(forName: destName)
+        }
+        UserDefaults.standard.setPersistentDomain(
+            ["lidBlockEnabled": true, "soundEnabled": true, "sessionActive": true], forName: legacy)
+        let dest = try #require(UserDefaults(suiteName: destName))
+        dest.set(false, forKey: "soundEnabled")   // 新 ID 下已经改过的设置
+
+        SleepCatApp.migrateLegacyDefaults(from: [legacy], into: dest)
+        #expect(dest.bool(forKey: "lidBlockEnabled"), "旧设置要搬过来")
+        #expect(dest.bool(forKey: "sessionActive"), "进行中的会话也要搬，才能无缝接上")
+        #expect(!dest.bool(forKey: "soundEnabled"), "不能覆盖新 ID 下已有的值")
+
+        // 只搬一次：之后旧域里再有变化也不再同步
+        UserDefaults.standard.setPersistentDomain(["keepDisplayOn": true], forName: legacy)
+        SleepCatApp.migrateLegacyDefaults(from: [legacy], into: dest)
+        #expect(!dest.bool(forKey: "keepDisplayOn"))
+    }
+}
+
 @Suite struct SessionResumeTests {
     let now = Date(timeIntervalSince1970: 1_000_000)
 
