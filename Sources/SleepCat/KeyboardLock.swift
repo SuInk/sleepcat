@@ -27,11 +27,14 @@ final class KeyboardLock: NSObject {
     /// 那时登记的授权对之后任何构建都无效，却仍在列表里显示为"已打开"，关掉再打开也不会更新。
     /// build.sh 现在把指定要求固定为应用 ID，新登记的授权能跨构建保留；
     /// 这里先清掉本应用可能残留的旧记录，让列表里出现一条真正能用的新记录。
-    static func requestPermission() {
-        if let id = Bundle.main.bundleIdentifier {
+    /// - Parameter legacyIDs: 以前用过的应用 ID。它们的授权记录对当前应用无效，
+    ///   留着会让设置里出现两个 SleepCat，一并清掉
+    static func requestPermission(alsoReset legacyIDs: [String] = []) {
+        for id in [Bundle.main.bundleIdentifier].compactMap({ $0 }) + legacyIDs {
             let reset = Process()
             reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-            reset.arguments = ["reset", "Accessibility", id]   // 只动 SleepCat 自己这一条
+            reset.arguments = ["reset", "Accessibility", id]   // 只动 SleepCat 自己的记录
+            reset.standardError = FileHandle.nullDevice      // 旧 ID 已不在系统里时会报错，无妨
             try? reset.run()
             reset.waitUntilExit()
         }
