@@ -25,8 +25,20 @@ final class KeyboardLock: NSObject {
 
     static var hasPermission: Bool { AXIsProcessTrusted() }
 
-    /// 把应用登记进「辅助功能」列表并打开设置页
+    /// 把应用登记进「辅助功能」列表并打开设置页。
+    ///
+    /// 系统按签名的「指定要求」认应用。早期构建用的是临时签名默认的指定要求（二进制哈希），
+    /// 那时登记的授权对之后任何构建都无效，却仍在列表里显示为"已打开"，关掉再打开也不会更新。
+    /// build.sh 现在把指定要求固定为应用 ID，新登记的授权能跨构建保留；
+    /// 这里先清掉本应用可能残留的旧记录，让列表里出现一条真正能用的新记录。
     static func requestPermission() {
+        if let id = Bundle.main.bundleIdentifier {
+            let reset = Process()
+            reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            reset.arguments = ["reset", "Accessibility", id]   // 只动 SleepCat 自己这一条
+            try? reset.run()
+            reset.waitUntilExit()
+        }
         let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
@@ -58,7 +70,7 @@ final class KeyboardLock: NSObject {
             },
             userInfo: me
         ) else {
-            return "无法创建键盘拦截。如果刚更新过应用，请在「辅助功能」里把 SleepCat 关掉再重新打开"
+            return "无法创建键盘拦截。请在「系统设置 › 隐私与安全性 › 辅助功能」里用「−」移除 SleepCat，再重新授权"
         }
 
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)

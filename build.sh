@@ -37,5 +37,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --sign - "$APP"
+# 临时签名默认的「指定要求」是二进制哈希，改一次代码就变，辅助功能授权随之失效。
+# 显式把指定要求写成只认应用 ID，授权就能跨构建、跨版本保留（和 diana 的做法一致）。
+IDENTIFIER="com.suink.sleepcat"
+codesign --force --sign - --identifier "$IDENTIFIER" \
+    --requirements "=designated => identifier \"$IDENTIFIER\"" "$APP"
+codesign --verify --strict "$APP"
 echo "✅ 构建完成：$APP（运行：open $APP）"
