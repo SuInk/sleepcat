@@ -338,6 +338,32 @@ import AppKit
     }
 }
 
+@Suite struct LidRuleRestoreTests {
+    @Test func promptsWhenLidModeIsOnButTheRuleIsGone() {
+        #expect(SleepCatApp.shouldRestoreLidRule(lidEnabled: true, ruleUsable: false,
+                                                 declinedVersion: nil, currentVersion: "1.1.0"))
+    }
+
+    @Test func staysQuietWhenNothingIsMissing() {
+        #expect(!SleepCatApp.shouldRestoreLidRule(lidEnabled: true, ruleUsable: true,
+                                                  declinedVersion: nil, currentVersion: "1.1.0"))
+        #expect(!SleepCatApp.shouldRestoreLidRule(lidEnabled: false, ruleUsable: false,
+                                                  declinedVersion: nil, currentVersion: "1.1.0"),
+                "没开合盖模式就用不到这条规则")
+    }
+
+    @Test func doesNotNagEveryLaunchAfterADecline() {
+        #expect(!SleepCatApp.shouldRestoreLidRule(lidEnabled: true, ruleUsable: false,
+                                                  declinedVersion: "1.1.0", currentVersion: "1.1.0"))
+    }
+
+    @Test func asksAgainAfterAnUpdate() {
+        // 更新本身可能就是规则失效的原因
+        #expect(SleepCatApp.shouldRestoreLidRule(lidEnabled: true, ruleUsable: false,
+                                                 declinedVersion: "1.0.0", currentVersion: "1.1.0"))
+    }
+}
+
 @Suite struct LegacyDefaultsMigrationTests {
     @Test func carriesSettingsOverWithoutClobberingOrRepeating() throws {
         let legacy = "test.sleepcat.legacy.\(UUID().uuidString)"

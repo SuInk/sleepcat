@@ -148,6 +148,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if !lidBlocker.isActive { lidSetByUs = false }
         }
 
+        // 等启动流程走完、菜单栏图标出来了再检查，别在应用还没露面时就弹授权框
+        DispatchQueue.main.async { [weak self] in self?.restoreLidRuleIfNeeded() }
+
         battery.onChange = { [weak self] status in self?.checkBattery(status) }
         battery.start()
         if let status = BatteryMonitor.read() { checkBattery(status) }   // 恢复的会话也要照常判定
@@ -258,7 +261,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // 规则被外部删掉时补装；恢复会话发生在启动时，不在那一刻弹框打扰
         if lidBlockEnabled, resumed || ensureFreePass() {
             if let err = lidBlocker.set(true, allowPrompt: !resumed) {
-                showWarning("合盖防休眠没有生效", err)  // 只挡住了闲置休眠
+                // 恢复会话时失败多半是规则丢了，交给启动后的检查去补写，这里不弹一个没法补救的警告
+                if !resumed { showWarning("合盖防休眠没有生效", err) }  // 只挡住了闲置休眠
             } else {
                 lidSetByUs = true
             }
@@ -737,19 +741,25 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// 确保免密规则在位；缺失时解释一次并请求授权。返回是否可用。
     @discardableResult
-    private func ensureFreePass() -> Bool {
+    /// - Parameter restoring: 启动时发现规则丢失、为已开启的合盖模式补写，文案不同于首次开启
+    private func ensureFreePass(restoring: Bool = false) -> Bool {
         if lidBlocker.freePassInstalled() { return true }
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "开启「合盖也不休眠」需要一次授权"
+        alert.messageText = restoring
+            ? "合盖防护的授权规则不见了，重新写入一次？"
+            : "开启「合盖也不休眠」需要一次授权"
+        let why = restoring
+            ? "你开着「合盖也不休眠」，但放行 pmset 的免密规则已经不可用了——常见原因是卸载时清理过、换了电脑，或者系统更新挪了 pmset 的位置，让规则里的路径失效。不补上的话，合盖还是会休眠。"
+            : "合盖休眠是系统强制行为，要用管理员权限执行 pmset disablesleep 才能挡住。"
         alert.informativeText = """
-        合盖休眠是系统强制行为，要用管理员权限执行 pmset disablesleep 才能挡住。
+        \(why)
 
         授权后会写入 /etc/sudoers.d/sleepcat，只放行这一条命令（开 / 关两种写法），不开放其他任何权限。之后开关合盖防护全程静默，不会再要密码。
 
         ⚠️ 喵住期间合上盖子，Mac 仍在运行、会发热耗电。放进背包前请先点猫猫停止。
         """
-        alert.addButton(withTitle: "授权并开启")
+        alert.addButton(withTitle: restoring ? "重新写入" : "授权并开启")
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
         if let err = lidBlocker.installFreePass() {
@@ -757,6 +767,35 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return false
         }
         return true
+    }
+
+    /// 启动时是否该提醒补写免密规则。用户在这个版本里拒绝过就不再每次启动都追问；
+    /// 应用更新到新版本后再问一次，因为更新本身可能就是规则失效的原因。
+    static func shouldRestoreLidRule(lidEnabled: Bool, ruleUsable: Bool,
+                                     declinedVersion: String?, currentVersion: String) -> Bool {
+        lidEnabled && !ruleUsable && declinedVersion != currentVersion
+    }
+
+    /// 应用重启或更新后，合盖模式开着但免密规则不可用：主动补写，
+    /// 而不是等合上盖子、Mac 睡着了才发现没挡住。补写成功且正在喵住，立刻把合盖防护加上。
+    private func restoreLidRuleIfNeeded() {
+        let defaults = UserDefaults.standard
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        guard Self.shouldRestoreLidRule(lidEnabled: lidBlockEnabled,
+                                        ruleUsable: lidBlocker.freePassInstalled(),
+                                        declinedVersion: defaults.string(forKey: "lidRuleDeclinedVersion"),
+                                        currentVersion: version) else { return }
+        LidBlocker.log("启动检查：合盖模式开着但免密规则不可用，请求补写")
+        guard ensureFreePass(restoring: true) else {
+            defaults.set(version, forKey: "lidRuleDeclinedVersion")
+            return
+        }
+        defaults.removeObject(forKey: "lidRuleDeclinedVersion")
+        if blocker.isActive, lidBlocker.set(true) == nil {
+            lidSetByUs = true
+            startLidWatchdog()
+            updateIcon()
+        }
     }
 
     /// 合盖防护看门狗。
