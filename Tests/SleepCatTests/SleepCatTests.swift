@@ -229,58 +229,25 @@ import AppKit
 }
 
 @Suite struct BlurGateTests {
-    let t0 = Date(timeIntervalSince1970: 1_000_000)
-    func t(_ s: Double) -> Date { t0.addingTimeInterval(s) }
-
-    @Test func closingMotionShowsBlur() {
-        var g = BlurGate()
-        for (s, angle) in [(0.0, 120.0), (0.2, 100), (0.4, 80), (0.6, 60)] {
-            g.update(angle: angle, now: t(s))
-        }
-        #expect(g.shouldShow(angle: 60, now: t(0.6)))
+    @Test func restingLidKeepsTheBlur() {
+        // 盖子停在半路也保持模糊，不因为暂停就消失
+        #expect(BlurGate.shouldShow(angle: 50, screenWatched: false))
     }
 
-    @Test func stoppingMakesItDisappear() {
-        var g = BlurGate()
-        g.update(angle: 120, now: t(0))
-        g.update(angle: 60, now: t(0.5))
-        g.update(angle: 60, now: t(1.0))
-        #expect(g.shouldShow(angle: 60, now: t(1.0)), "刚停，还在宽限期内")
-        g.update(angle: 60, now: t(2.0))
-        #expect(!g.shouldShow(angle: 60, now: t(2.0)), "停稳超过 1 秒就该消失")
+    @Test func fullyClosedHides() {
+        #expect(!BlurGate.shouldShow(angle: 3, screenWatched: false))
     }
 
-    @Test func briefPauseMidCloseDoesNotFlicker() {
-        // 合盖时手顿一下很正常，不能一顿就闪没
-        var g = BlurGate()
-        g.update(angle: 110, now: t(0))
-        g.update(angle: 70, now: t(0.4))
-        g.update(angle: 70, now: t(1.0))   // 顿了 0.6 秒
-        #expect(g.shouldShow(angle: 70, now: t(1.0)))
-        g.update(angle: 40, now: t(1.3))
-        #expect(g.shouldShow(angle: 40, now: t(1.3)))
+    @Test func getsOutOfTheWayWhileTheScreenIsWatched() {
+        // 远程控制 / 屏幕共享 / 录屏时覆盖层会盖住对方看到的画面
+        #expect(!BlurGate.shouldShow(angle: 50, screenWatched: true))
     }
+}
 
-    @Test func sensorJitterIsNotMotion() {
-        // 远程连着、盖子停在半路：传感器在 ±1° 抖，不能因此冒出模糊
-        var g = BlurGate()
-        for (i, angle) in [45.0, 46, 45, 44, 45, 46, 45].enumerated() {
-            g.update(angle: angle, now: t(Double(i)))
-        }
-        #expect(!g.shouldShow(angle: 45, now: t(6)))
-    }
-
-    @Test func lidAlreadyStillAtLaunchShowsNothing() {
-        var g = BlurGate()
-        g.update(angle: 60, now: t(0))
-        #expect(!g.shouldShow(angle: 60, now: t(0)))
-    }
-
-    @Test func fullyClosedNeverShowsEvenWhileMoving() {
-        var g = BlurGate()
-        g.update(angle: 40, now: t(0))
-        g.update(angle: 5, now: t(0.3))
-        #expect(!g.shouldShow(angle: 5, now: t(0.3)))
+@Suite struct ScreenWatchTests {
+    @Test func probeResolvesOnThisSystem() {
+        // 私有接口，系统升级可能改名；那时检测会静默失效，这条测试负责报警
+        #expect(ScreenWatch.isAvailable, "SkyLight 里找不到 SLSIsScreenWatcherPresent")
     }
 }
 
