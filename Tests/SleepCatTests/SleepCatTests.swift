@@ -284,6 +284,76 @@ import AppKit
     }
 }
 
+@Suite struct LowBatteryGuardTests {
+    func battery(_ p: Int) -> PowerStatus { PowerStatus(onBattery: true, percent: p) }
+    func plugged(_ p: Int) -> PowerStatus { PowerStatus(onBattery: false, percent: p) }
+
+    @Test func stopsOnceWhenDrainingPastTheThreshold() {
+        var g = LowBatteryGuard()
+        let r1 = g.shouldStop(battery(40), threshold: 20, sessionActive: true)
+        #expect(!r1)
+        let r2 = g.shouldStop(battery(21), threshold: 20, sessionActive: true)
+        #expect(!r2)
+        let r3 = g.shouldStop(battery(20), threshold: 20, sessionActive: true)
+        #expect(r3, "到阈值就停")
+        let r4 = g.shouldStop(battery(19), threshold: 20, sessionActive: true)
+        #expect(!r4, "已经停过，不会反复触发")
+    }
+
+    @Test func neverStopsWhilePluggedIn() {
+        var g = LowBatteryGuard()
+        let r5 = g.shouldStop(plugged(5), threshold: 20, sessionActive: true)
+        #expect(!r5, "插着电源就是在充电")
+    }
+
+    @Test func offMeansOff() {
+        var g = LowBatteryGuard()
+        let r6 = g.shouldStop(battery(3), threshold: nil, sessionActive: true)
+        #expect(!r6)
+    }
+
+    @Test func manualStartBelowThresholdIsRespected() {
+        // 电量 15% 时用户手动开喵住：是有意的，不能一开就被停掉
+        var g = LowBatteryGuard()
+        let r7 = g.noteManualStart(battery(15), threshold: 20)
+        #expect(r7, "应该提示用户这次不会自动停")
+        let r8 = g.shouldStop(battery(15), threshold: 20, sessionActive: true)
+        #expect(!r8)
+        let r9 = g.shouldStop(battery(8), threshold: 20, sessionActive: true)
+        #expect(!r9)
+    }
+
+    @Test func manualStartAboveThresholdNeedsNoNotice() {
+        var g = LowBatteryGuard()
+        let r10 = g.noteManualStart(battery(60), threshold: 20)
+        #expect(!r10)
+        let r11 = g.noteManualStart(plugged(10), threshold: 20)
+        #expect(!r11)
+    }
+
+    @Test func pluggingInReArmsIt() {
+        var g = LowBatteryGuard()
+        _ = g.noteManualStart(battery(15), threshold: 20)
+        let pluggedIn = g.shouldStop(plugged(15), threshold: 20, sessionActive: true)   // 插上电源
+        #expect(!pluggedIn)
+        let r12 = g.shouldStop(battery(15), threshold: 20, sessionActive: true)
+        #expect(r12, "拔掉后重新生效")
+    }
+
+    @Test func doesNothingWhenNotKeepingAwake() {
+        var g = LowBatteryGuard()
+        let r13 = g.shouldStop(battery(10), threshold: 20, sessionActive: false)
+        #expect(!r13)
+    }
+
+    @Test func readsThisMacsBatterySanely() {
+        // 台式机没有电池会返回 nil，那也是对的
+        if let s = BatteryMonitor.read() {
+            #expect((0...100).contains(s.percent))
+        }
+    }
+}
+
 @Suite struct RecommendTests {
     @Test func copiedTextCarriesTheLink() {
         #expect(SleepCatApp.recommendationText.contains(SleepCatApp.homepage.absoluteString))

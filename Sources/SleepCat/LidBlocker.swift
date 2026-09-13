@@ -154,7 +154,7 @@ final class LidBlocker {
         )
     }
 
-    private static func log(_ message: String) {
+    static func log(_ message: String) {
         let line = "[\(Date())] \(message)\n"
         if let handle = FileHandle(forWritingAtPath: logPath) {
             handle.seekToEndOfFile()
