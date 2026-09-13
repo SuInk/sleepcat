@@ -65,10 +65,6 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         get { UserDefaults.standard.bool(forKey: "lidBlockEnabled") }
         set { UserDefaults.standard.set(newValue, forKey: "lidBlockEnabled") }
     }
-    private var lidWarningShown: Bool {
-        get { UserDefaults.standard.bool(forKey: "lidWarningShown") }
-        set { UserDefaults.standard.set(newValue, forKey: "lidWarningShown") }
-    }
     /// 归属标记：disablesleep=1 是不是我们设置的（区分用户/其他工具自己开的）
     private var lidSetByUs: Bool {
         get { UserDefaults.standard.bool(forKey: "lidSetByUs") }
@@ -218,8 +214,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func activate(duration: TimeInterval?, resumed: Bool = false) {
         if duration == nil { activePreset = nil }
         blocker.start(keepDisplayOn: keepDisplayOn)
-        if lidBlockEnabled {
-            if let err = lidBlocker.set(true) {
+        // 规则被外部删掉时补装；恢复会话发生在启动时，不在那一刻弹框打扰
+        if lidBlockEnabled, resumed || ensureFreePass() {
+            if let err = lidBlocker.set(true, allowPrompt: !resumed) {
                 showLidError("合盖防休眠没有生效", err)  // 只挡住了闲置休眠
             } else {
                 lidSetByUs = true
@@ -328,20 +325,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let lidItem = makeItem("合盖也不休眠", #selector(toggleLidSetting), symbol: "laptopcomputer")
         lidItem.state = lidBlockEnabled ? .on : .off
-        lidItem.toolTip = "需要管理员权限执行 pmset disablesleep"
+        lidItem.toolTip = "首次开启需一次管理员授权，之后切换全程静默"
         menu.addItem(lidItem)
-
-        if lidBlockEnabled {
-            let hasFreePass = lidBlocker.freePassInstalled()
-            let fpItem = makeItem(hasFreePass ? "免密切换（已授权）" : "免密切换（未授权，每次输密码）",
-                                  #selector(toggleFreePass), symbol: "key")
-            fpItem.state = hasFreePass ? .on : .off
-            fpItem.indentationLevel = 1
-            fpItem.toolTip = hasFreePass
-                ? "点按可移除 /etc/sudoers.d/sleepcat 规则"
-                : "点按安装一条只放行 pmset disablesleep 的 sudoers 规则"
-            menu.addItem(fpItem)
-        }
 
         // ── 效果与提示 ──
         menu.addItem(sectionHeader("效果与提示"))
@@ -469,8 +454,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             detail = deadline.map { "还剩 \(Self.format($0.timeIntervalSinceNow))" } ?? "无限期"
             if lidBlocker.isActive { detail += " · 含合盖防护" }
         } else if lidBlocker.isActive {
-            title = "打盹中（系统休眠仍被禁用）"
-            detail = "pmset disablesleep 未恢复，点合盖开关可修复"
+            title = "打盹中 · 休眠仍被禁用"
+            detail = "开关一次「合盖也不休眠」可恢复"
         } else {
             title = "打盹中"
             detail = "Mac 可正常休眠"
@@ -557,72 +542,45 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleLidSetting() {
-        if !lidBlockEnabled {
-            // 首次开启且没装免密规则时才解释一次；之后菜单里的「免密切换」随时可装
-            if !lidBlocker.freePassInstalled() && !lidWarningShown {
-                NSApp.activate(ignoringOtherApps: true)
-                let alert = NSAlert()
-                alert.messageText = "开启「合盖也不休眠」？"
-                alert.informativeText = """
-                合盖休眠是系统强制行为，需要管理员权限执行 pmset disablesleep 才能关掉。
-
-                推荐安装"免密规则"：往 /etc/sudoers.d/sleepcat 写一条只放行这条 pmset 命令的规则，授权一次，之后开关合盖防护完全静默。不装的话每次开关都要输一次密码。
-
-                ⚠️ 注意：喵住期间合上盖子，Mac 仍在运行、会发热耗电。放进背包前请先点猫猫停止。停止喵住 / 退出时会自动恢复正常休眠。
-                """
-                alert.addButton(withTitle: "安装免密规则并开启")
-                alert.addButton(withTitle: "开启（每次输密码）")
-                alert.addButton(withTitle: "取消")
-                switch alert.runModal() {
-                case .alertFirstButtonReturn:
-                    if let err = lidBlocker.installFreePass() {
-                        showLidError("免密规则安装失败", "\(err)\n\n仍可以用每次输密码的方式。")
-                    } else {
-                        syncLidStateAfterFreePass()
-                    }
-                case .alertSecondButtonReturn:
-                    break
-                default:
-                    return
-                }
-                lidWarningShown = true
-            }
-            lidBlockEnabled = true
-            if blocker.isActive {
-                if let err = lidBlocker.set(true) {
-                    showLidError("合盖防休眠没有生效", err)
-                } else {
-                    lidSetByUs = true
-                }
-            }
-        } else {
+        if lidBlockEnabled {
             lidBlockEnabled = false
             restoreLidSleepIfNeeded()
+            return
         }
-    }
-
-    @objc private func toggleFreePass() {
-        if lidBlocker.freePassInstalled() {
-            if let err = lidBlocker.removeFreePass() {
-                showLidError("免密规则卸载失败", err)
-            }
-        } else {
-            if let err = lidBlocker.installFreePass() {
-                showLidError("免密规则安装失败", err)
+        // 免密规则是合盖模式的一部分，不是可选项：装不上就不开
+        guard ensureFreePass() else { return }
+        lidBlockEnabled = true
+        if blocker.isActive {
+            if let err = lidBlocker.set(true) {
+                showLidError("合盖防休眠没有生效", err)
             } else {
-                syncLidStateAfterFreePass()
+                lidSetByUs = true
             }
         }
     }
 
-    /// 免密规则装好后，把系统 disablesleep 对齐到当前应有的状态（全程静默）
-    private func syncLidStateAfterFreePass() {
-        if blocker.isActive && lidBlockEnabled {
-            if lidBlocker.set(true) == nil { lidSetByUs = true }
-        } else if lidBlocker.isActive && lidSetByUs {
-            lidBlocker.trySilentRestore()
-            if !lidBlocker.isActive { lidSetByUs = false }
+    /// 确保免密规则在位；缺失时解释一次并请求授权。返回是否可用。
+    @discardableResult
+    private func ensureFreePass() -> Bool {
+        if lidBlocker.freePassInstalled() { return true }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "开启「合盖也不休眠」需要一次授权"
+        alert.informativeText = """
+        合盖休眠是系统强制行为，要用管理员权限执行 pmset disablesleep 才能挡住。
+
+        授权后会写入 /etc/sudoers.d/sleepcat，只放行这一条命令（开 / 关两种写法），不开放其他任何权限。之后开关合盖防护全程静默，不会再要密码。
+
+        ⚠️ 喵住期间合上盖子，Mac 仍在运行、会发热耗电。放进背包前请先点猫猫停止。
+        """
+        alert.addButton(withTitle: "授权并开启")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        if let err = lidBlocker.installFreePass() {
+            showLidError("授权没有完成", "\(err)\n\n合盖防护未开启。")
+            return false
         }
+        return true
     }
 
     /// 合盖防护看门狗。

@@ -42,17 +42,15 @@ cd sleepcat && ./build.sh && open SleepCat.app
 
 ## 合盖模式的权限说明
 
-合盖休眠是系统强制行为，电源断言挡不住，只能用 `pmset disablesleep`（需要 root）。SleepCat 提供两种方式：
+合盖休眠是系统强制行为，电源断言挡不住（Apple 在 `IOPMLib.h` 里写明了断言不管合盖），只能用 `pmset disablesleep`（需要 root）。
 
-1. **免密规则（推荐）**：授权一次，往 `/etc/sudoers.d/sleepcat` 写入一条 **只放行两条精确命令** 的规则：
+第一次开启「合盖也不休眠」时会请求一次管理员授权，往 `/etc/sudoers.d/sleepcat` 写入一条 **只放行两条精确命令** 的规则：
 
-   ```
-   <你的用户名> ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 1, /usr/bin/pmset -a disablesleep 0
-   ```
+```
+<你的用户名> ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 1, /usr/bin/pmset -a disablesleep 0
+```
 
-   写入前用 `visudo -c` 校验语法。之后开关合盖防护完全静默。菜单里随时可卸载。
-
-2. **每次输密码**：不装规则，每次切换弹系统管理员密码框。
+写入前用 `visudo -c` 校验语法。之后开关合盖防护全程静默。移除规则：`sudo rm /etc/sudoers.d/sleepcat`，或 `brew uninstall --zap --cask sleepcat`。
 
 ⚠️ 喵住 + 合盖期间 Mac 仍在运行、会发热耗电，**放进背包前先停止喵住**。停止/退出时自动恢复正常休眠。
 

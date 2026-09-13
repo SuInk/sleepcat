@@ -113,6 +113,12 @@ import AppKit
         #expect(widths.count == 1, "图标宽度必须统一，否则每行文字起点会左右浮动：\(widths)")
     }
 
+    @MainActor @Test func noRowIsIndented() {
+        // 缩进会把勾、图标、文字整体右移，上一版的「免密切换」就是这么歪的
+        let indented = SleepCatApp().buildMenu().items.filter { $0.indentationLevel > 0 }.map(\.title)
+        #expect(indented.isEmpty, "缩进的行：\(indented)")
+    }
+
     @MainActor @Test func everyRowHasAnIcon() {
         let rows = SleepCatApp().buildMenu().items.filter {
             !$0.isSeparatorItem && $0.attributedTitle == nil && !$0.title.isEmpty
