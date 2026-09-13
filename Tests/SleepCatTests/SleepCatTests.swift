@@ -25,6 +25,24 @@ import AppKit
     }
 }
 
+@Suite struct AppIconTests {
+    @Test func exportsEveryIconsetSizeAtTheRightResolution() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sleepcat-test-\(UUID().uuidString).iconset").path
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try AppIcon.writeIconset(to: dir)
+
+        // iconutil 要求的 10 个文件，名字和像素尺寸都必须严格对应
+        for base in [16, 32, 128, 256, 512] {
+            for scale in [1, 2] {
+                let name = scale == 1 ? "icon_\(base)x\(base).png" : "icon_\(base)x\(base)@2x.png"
+                let rep = NSImageRep(contentsOfFile: "\(dir)/\(name)")
+                #expect(rep?.pixelsWide == base * scale, "\(name) 尺寸不对")
+            }
+        }
+    }
+}
+
 @Suite struct CatIconTests {
     @Test func iconsAreTemplates() {
         #expect(CatIcon.awake.isTemplate, "模板图才能适配深浅色菜单栏")
