@@ -39,6 +39,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let lidBlocker = LidBlocker()
     private let island = NotchIsland()
     private let lidSensor = LidAngleSensor()   // 同一个 HID 设备只开一次，模糊和看门狗共用
+    private let keyboardLock = KeyboardLock()
     private var duoBlur: DuoBlur?
     private var offTimer: Timer?
     private var menuRefreshTimer: Timer?
@@ -213,7 +214,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // 规则被外部删掉时补装；恢复会话发生在启动时，不在那一刻弹框打扰
         if lidBlockEnabled, resumed || ensureFreePass() {
             if let err = lidBlocker.set(true, allowPrompt: !resumed) {
-                showLidError("合盖防休眠没有生效", err)  // 只挡住了闲置休眠
+                showWarning("合盖防休眠没有生效", err)  // 只挡住了闲置休眠
             } else {
                 lidSetByUs = true
             }
@@ -361,6 +362,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let soundItem = makeItem("切换时播放喵声", #selector(toggleSoundSetting), symbol: "speaker.wave.2")
         soundItem.state = soundEnabled ? .on : .off
         menu.addItem(soundItem)
+
+        // ── 工具 ──
+        menu.addItem(sectionHeader("工具"))
+        menu.addItem(makeItem("清洁键盘…", #selector(startKeyboardCleaning), symbol: "keyboard"))
 
         // ── 关于 / 退出 ──
         menu.addItem(.separator())
@@ -594,7 +599,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lidBlockEnabled = true
         if blocker.isActive {
             if let err = lidBlocker.set(true) {
-                showLidError("合盖防休眠没有生效", err)
+                showWarning("合盖防休眠没有生效", err)
             } else {
                 lidSetByUs = true
             }
@@ -619,7 +624,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
         if let err = lidBlocker.installFreePass() {
-            showLidError("授权没有完成", "\(err)\n\n合盖防护未开启。")
+            showWarning("授权没有完成", "\(err)\n\n合盖防护未开启。")
             return false
         }
         return true
@@ -669,14 +674,34 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func restoreLidSleepIfNeeded() {
         guard lidBlocker.isActive else { return }
         if let err = lidBlocker.set(false) {
-            showLidError("系统休眠仍处于禁用状态",
+            showWarning("系统休眠仍处于禁用状态",
                          "\(err)\n\n合盖暂时不会休眠。可以稍后在菜单里重试，或在终端执行：sudo pmset -a disablesleep 0")
         } else {
             lidSetByUs = false
         }
     }
 
-    private func showLidError(_ title: String, _ detail: String) {
+    @objc private func startKeyboardCleaning() {
+        guard KeyboardLock.hasPermission else {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "清洁键盘需要「辅助功能」权限"
+            alert.informativeText = """
+            禁用键盘要拦截系统的按键事件，macOS 规定这需要辅助功能权限。
+
+            点「去授权」后，在列表里打开 SleepCat，再回来点一次「清洁键盘…」。
+            """
+            alert.addButton(withTitle: "去授权")
+            alert.addButton(withTitle: "取消")
+            if alert.runModal() == .alertFirstButtonReturn { KeyboardLock.requestPermission() }
+            return
+        }
+        if let err = keyboardLock.lock() {
+            showWarning("没能禁用键盘", err)
+        }
+    }
+
+    private func showWarning(_ title: String, _ detail: String) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -697,6 +722,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         restoreLidSleepIfNeeded()
         clearSession()
         duoBlur?.stop()   // 确保光标一定还给用户
+        keyboardLock.unlock()
     }
 }
 
@@ -740,6 +766,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--dump-icons") {
     try? MeowSound.wavData().write(to: URL(fileURLWithPath: "\(dir)/meow.wav"))
     NotchIsland.renderPreview(toDirectory: dir)
     DurationPicker.renderPreview(toDirectory: dir)
+    KeyboardLock.renderPreview(toDirectory: dir)
     exit(0)
 }
 

@@ -180,7 +180,25 @@ import AppKit
         }
         let naked = rows.filter { $0.image == nil }.map(\.title)
         // 分组标题本身没有图标，其余每行都该有
-        #expect(naked.allSatisfy { ["喵住设置", "效果与提示"].contains($0) }, "缺图标的行：\(naked)")
+        #expect(naked.allSatisfy { ["喵住设置", "效果与提示", "工具"].contains($0) }, "缺图标的行：\(naked)")
+    }
+}
+
+@Suite struct KeyboardLockTests {
+    // 不在测试里真的调用 lock()：跑测试的终端若恰好有辅助功能权限，会把人的键盘锁住
+    @Test func blocksKeysModifiersAndFunctionRow() {
+        let mask = KeyboardLock.blockedMask
+        for type in [CGEventType.keyDown, .keyUp, .flagsChanged] {
+            #expect(mask & (1 << type.rawValue) != 0, "\(type.rawValue) 没被拦截")
+        }
+        #expect(mask & (1 << 14) != 0, "亮度 / 音量 / 媒体键（NX_SYSDEFINED）没被拦截")
+    }
+
+    @Test func leavesTheMouseAloneSoTheUnlockButtonStaysClickable() {
+        let mask = KeyboardLock.blockedMask
+        for type in [CGEventType.leftMouseDown, .leftMouseUp, .mouseMoved] {
+            #expect(mask & (1 << type.rawValue) == 0)
+        }
     }
 }
 
