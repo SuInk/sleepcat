@@ -4,16 +4,14 @@
 
 import AppKit
 
-/// 决定这一刻该不该出模糊：跟着角度走，盖子停在半路也保持模糊（和 macTilt 等同类实现一致）。
+/// 决定这一刻该不该出模糊：跟着角度走，停在半路保持模糊，合到底也不变回清晰
+/// （和 macTilt 等同类实现一致）。
 ///
-/// 两种情况让开：
-/// - 合死了：本地什么都看不见，覆盖层只会挡住远程画面
-/// - 屏幕正被持续监看（远程控制、屏幕共享、录屏）：覆盖层会盖住对方看到的画面
+/// 唯一让开的情况：屏幕正被持续监看（远程控制、屏幕共享、录屏）——
+/// 覆盖层会盖住对方看到的画面。合着盖子远程也靠这一条，不需要再按角度判断。
 enum BlurGate {
-    static let closedAngle = 8.0
-
-    static func shouldShow(angle: Double, screenWatched: Bool) -> Bool {
-        angle > closedAngle && !screenWatched
+    static func shouldShow(screenWatched: Bool) -> Bool {
+        !screenWatched
     }
 }
 
@@ -105,8 +103,8 @@ final class DuoBlur {
             }
         }
 
-        // 合死了或者有人在看屏幕：立刻撤掉，不做淡出——淡出过程远程那边是看得见的
-        guard BlurGate.shouldShow(angle: angle, screenWatched: screenWatched) else {
+        // 有人在看屏幕：立刻撤掉，不做淡出——淡出过程远程那边是看得见的
+        guard BlurGate.shouldShow(screenWatched: screenWatched) else {
             hideNow()
             return
         }

@@ -594,10 +594,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 发微信 / QQ 用：一段话直接带上链接
     static var recommendationText: String { "\(recommendationBlurb)：\(homepage.absoluteString)" }
 
-    /// 一行装好。brew trust 只有 Homebrew 6 起才有，老版本没有这个命令，失败了也要继续往下装；
-    /// 最后去掉隔离标记，否则临时签名的应用第一次打开会被系统拦住
-    static let installCommand =
-        "brew tap suink/tap && (brew trust suink/tap 2>/dev/null || true) && brew install --cask sleepcat && xattr -dr com.apple.quarantine /Applications/SleepCat.app"
+    /// 写全名：Homebrew 会自动 tap，也不再要求先 brew trust；隔离标记由 cask 的 postflight 清掉
+    static let installCommand = "brew install suink/tap/sleepcat"
 
     @objc private func copyRecommendation() {
         copyToPasteboard(Self.recommendationText)

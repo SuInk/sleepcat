@@ -21,20 +21,17 @@ A cat in your menu bar that keeps your Mac awake — including with the lid clos
   - 同时保持屏幕常亮（可选，默认只防系统休眠）
   - 音效：喵（代码合成）/ 呼噜（默认关闭）
 - 🏝️ **Duo 岛**：把 MacBook 刘海当灵动岛用（iPhone Duo 风格）——平时隐身，鼠标悬停到刘海或喵住状态变化时流畅展开成黑色胶囊，显示猫猫状态和剩余时间，点按直接切换；菜单可关
-- 🌫️ **Duo 合盖模糊**：读取 MacBook 内置的铰链角度传感器（HID Sensor 0x20/0x8A），合盖过程中屏幕随角度实时渐变模糊 + 暗化（100° 起雾、40° 拉满），复刻 iPhone Duo 折叠时的液态玻璃效果；重新打开反向消散。盖子停在半路时模糊保持不变；合死、或者屏幕正被远程控制 / 屏幕共享 / 录屏持续监看时自动让开，不会挡住对方看到的画面。只画在内建屏幕上。调试：`SleepCat --lid-angle` 打印实时角度
+- 🌫️ **Duo 合盖模糊**：读取 MacBook 内置的铰链角度传感器（HID Sensor 0x20/0x8A），合盖过程中屏幕随角度实时渐变模糊 + 暗化（100° 起雾、40° 拉满），复刻 iPhone Duo 折叠时的液态玻璃效果；重新打开反向消散。盖子停在半路、合到底都保持模糊；只有屏幕正被远程控制 / 屏幕共享 / 录屏持续监看时才自动让开，不会挡住对方看到的画面。只画在内建屏幕上。调试：`SleepCat --lid-angle` 打印实时角度
 - 模板图标，自动适配深浅色菜单栏；按住 ⌘ 拖动可调整猫猫在菜单栏里的位置（位置会记住）
 - 崩溃自愈：异常退出残留的"禁止休眠"状态会在下次启动时自动恢复
 
 ## 安装
 
 ```sh
-brew tap suink/tap
-brew trust suink/tap        # Homebrew 6 起第三方 tap 需要显式信任
-brew install --cask sleepcat
-xattr -dr com.apple.quarantine /Applications/SleepCat.app
+brew install suink/tap/sleepcat
 ```
 
-（最后一步是因为应用只做了 ad-hoc 签名、未公证，不去掉 quarantine 标记会被 Gatekeeper 拦。）
+一行就行，不用先 tap，也不用 `brew trust`。升级用 `brew upgrade suink/tap/sleepcat`；想让普通的 `brew upgrade` 也顺带升级它，就运行一次 `brew trust suink/tap`。
 
 或者从源码构建（需要 Xcode Command Line Tools）：
 

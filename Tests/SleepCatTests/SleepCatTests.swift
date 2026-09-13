@@ -229,18 +229,15 @@ import AppKit
 }
 
 @Suite struct BlurGateTests {
-    @Test func restingLidKeepsTheBlur() {
-        // 盖子停在半路也保持模糊，不因为暂停就消失
-        #expect(BlurGate.shouldShow(angle: 50, screenWatched: false))
-    }
-
-    @Test func fullyClosedHides() {
-        #expect(!BlurGate.shouldShow(angle: 3, screenWatched: false))
+    @Test func staysBlurredWhetherRestingOrFullyClosed() {
+        // 停在半路、合到底都保持模糊，不会在最后一下变回清晰
+        #expect(BlurGate.shouldShow(screenWatched: false))
+        #expect(DuoBlur.progress(forAngle: 0) == 1, "合到底时模糊应该是满的")
     }
 
     @Test func getsOutOfTheWayWhileTheScreenIsWatched() {
         // 远程控制 / 屏幕共享 / 录屏时覆盖层会盖住对方看到的画面
-        #expect(!BlurGate.shouldShow(angle: 50, screenWatched: true))
+        #expect(!BlurGate.shouldShow(screenWatched: true))
     }
 }
 
@@ -326,25 +323,18 @@ import AppKit
         #expect(SleepCatApp.recommendationText.contains(SleepCatApp.homepage.absoluteString))
     }
 
-    @Test func installCommandIsCompleteAndParses() throws {
+    @Test func installCommandIsOneShortLine() {
+        // 用户嫌命令长：写全名一行装好，tap / trust / 去隔离标记都不用再手敲
         let cmd = SleepCatApp.installCommand
-        #expect(cmd.contains("brew install --cask sleepcat"))
-        #expect(cmd.contains("xattr -dr com.apple.quarantine"), "少了这步，朋友第一次打开会被系统拦住")
-        // 真的交给 shell 做语法检查（不执行）
-        let sh = Process()
-        sh.executableURL = URL(fileURLWithPath: "/bin/bash")
-        sh.arguments = ["-n", "-c", cmd]
-        try sh.run()
-        sh.waitUntilExit()
-        #expect(sh.terminationStatus == 0)
+        #expect(cmd == "brew install suink/tap/sleepcat")
+        #expect(!cmd.contains("&&"), "不该再拼接多条命令")
     }
 
     @Test func installCommandMatchesTheReadme() throws {
-        // 推荐出去的 tap 名要和 README 写的一致，改一边忘了另一边就会装不上
+        // 推荐出去的命令要和 README 写的一模一样，改一边忘了另一边就会装不上
         let readme = try String(contentsOfFile: #filePath
             .replacingOccurrences(of: "Tests/SleepCatTests/SleepCatTests.swift", with: "README.md"), encoding: .utf8)
-        #expect(readme.contains("brew tap suink/tap"))
-        #expect(SleepCatApp.installCommand.hasPrefix("brew tap suink/tap"))
+        #expect(readme.contains(SleepCatApp.installCommand))
     }
 }
 
