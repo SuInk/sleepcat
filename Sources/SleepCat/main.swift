@@ -273,9 +273,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: 菜单
 
-    private let presets: [(String, Int)] = [
-        ("15 分钟", 15), ("30 分钟", 30), ("1 小时", 60), ("2 小时", 120), ("4 小时", 240),
+    /// 从短暂离开到挂一整晚：30 分钟起步，8 小时覆盖下载 / 编译 / 通宵跑任务
+    static let presets: [(String, Int)] = [
+        ("30 分钟", 30), ("1 小时", 60), ("2 小时", 120), ("4 小时", 240), ("8 小时", 480),
     ]
+
+    private var lastCustomMinutes: Int {
+        get { UserDefaults.standard.object(forKey: "lastCustomMinutes") as? Int ?? 90 }
+        set { UserDefaults.standard.set(newValue, forKey: "lastCustomMinutes") }
+    }
 
     private func showMenu() {
         let menu = buildMenu()
@@ -306,12 +312,21 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         forever.state = (blocker.isActive && deadline == nil) ? .on : .off
         timedMenu.addItem(forever)
         timedMenu.addItem(.separator())
-        for (label, minutes) in presets {
+        for (label, minutes) in Self.presets {
             let item = makeItem(label, #selector(menuActivateTimed(_:)))
             item.tag = minutes
+            item.attributedTitle = timedTitle(label, minutes: minutes)
             item.state = (blocker.isActive && activePreset == minutes) ? .on : .off
             timedMenu.addItem(item)
         }
+        timedMenu.addItem(.separator())
+        let customMinutes = activePreset.flatMap { m in Self.presets.contains { $0.1 == m } ? nil : m }
+        let isCustom = blocker.isActive && customMinutes != nil
+        let custom = makeItem(
+            isCustom ? "自定义（\(DurationPicker.durationText(minutes: customMinutes!))）…" : "自定义…",
+            #selector(menuActivateCustom))
+        custom.state = isCustom ? .on : .off
+        timedMenu.addItem(custom)
         menu.addItem(timedRoot)
         menu.setSubmenu(timedMenu, for: timedRoot)
 
@@ -493,6 +508,37 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func menuActivateTimed(_ sender: NSMenuItem) {
         activePreset = sender.tag
         activate(duration: TimeInterval(sender.tag * 60))
+    }
+
+    @objc private func menuActivateCustom() {
+        NSApp.activate(ignoringOtherApps: true)
+        let picker = DurationPicker(minutes: lastCustomMinutes)
+        let alert = NSAlert()
+        alert.messageText = "自定义喵住时长"
+        alert.informativeText = "到点后自动放猫猫去睡。"
+        alert.accessoryView = picker.view
+        alert.addButton(withTitle: "开始喵住")
+        alert.addButton(withTitle: "取消")
+        picker.onChange = { [weak alert] total in alert?.buttons.first?.isEnabled = total > 0 }
+        alert.window.initialFirstResponder = picker.hoursField
+        guard alert.runModal() == .alertFirstButtonReturn, picker.totalMinutes > 0 else { return }
+        lastCustomMinutes = picker.totalMinutes
+        activePreset = picker.totalMinutes
+        activate(duration: TimeInterval(picker.totalMinutes * 60))
+    }
+
+    /// 档位名左对齐，结束时刻右对齐成灰色一列，扫一眼就知道到几点
+    private func timedTitle(_ label: String, minutes: Int) -> NSAttributedString {
+        let para = NSMutableParagraphStyle()
+        para.tabStops = [NSTextTab(textAlignment: .right, location: 170)]
+        let font = NSFont.menuFont(ofSize: 0)   // 不显式给字体会退回 Helvetica 12
+        let s = NSMutableAttributedString(string: label + "\t", attributes: [
+            .font: font, .paragraphStyle: para,
+        ])
+        s.append(NSAttributedString(
+            string: DurationPicker.prefixed("至", DurationPicker.endTimeText(minutes: minutes, showToday: false)),
+            attributes: [.font: font, .paragraphStyle: para, .foregroundColor: NSColor.secondaryLabelColor]))
+        return s
     }
 
     // MARK: NSMenuDelegate —— 菜单打开期间每秒刷新倒计时
@@ -686,6 +732,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--dump-icons") {
     CatIcon.dump(toDirectory: dir)
     try? MeowSound.wavData().write(to: URL(fileURLWithPath: "\(dir)/meow.wav"))
     NotchIsland.renderPreview(toDirectory: dir)
+    DurationPicker.renderPreview(toDirectory: dir)
     exit(0)
 }
 
