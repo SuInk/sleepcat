@@ -198,6 +198,27 @@ import AppKit
         #expect(mask & (1 << 14) != 0, "亮度 / 音量 / 媒体键（NX_SYSDEFINED）没被拦截")
     }
 
+    @MainActor @Test func noTextOnThePanelIsSelectable() {
+        // 可选中的文本会让鼠标变成输入光标（wrappingLabelWithString 默认就是可选中的）
+        func walk(_ v: NSView) -> [NSTextField] {
+            (v as? NSTextField).map { [$0] } ?? [] + v.subviews.flatMap(walk)
+        }
+        let content = KeyboardLock.makeContent(size: KeyboardLock.panelSize, target: nil, action: nil)
+        let fields = walk(content)
+        #expect(!fields.isEmpty)
+        let selectable = fields.filter { $0.isSelectable || $0.isEditable }.map(\.stringValue)
+        #expect(selectable.isEmpty, "可选中的文本：\(selectable)")
+    }
+
+    @MainActor @Test func unlockButtonWorksWithoutTheWindowBeingActive() {
+        let button = PillButton(title: "清洁完成")
+        var clicked = false
+        button.onClick = { clicked = true }
+        #expect(button.acceptsFirstMouse(for: nil), "面板从不是当前窗口，不接受首次点击就得点两下")
+        #expect(button.accessibilityPerformPress())
+        #expect(clicked)
+    }
+
     @Test func leavesTheMouseAloneSoTheUnlockButtonStaysClickable() {
         let mask = KeyboardLock.blockedMask
         for type in [CGEventType.leftMouseDown, .leftMouseUp, .mouseMoved] {
