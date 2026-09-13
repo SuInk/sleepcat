@@ -1,34 +1,15 @@
 import AppKit
 
-/// 决定这一刻该不该出模糊：**只在盖子正在动的时候出现，停下就消失**。
+/// 决定这一刻该不该出模糊：跟着角度走，盖子停在半路也保持模糊（和 macTilt 等同类实现一致）。
 ///
-/// 模糊是给"本地的人亲眼看着自己合盖"的过程效果。盖子一旦停住，冻住的毛玻璃对谁都
-/// 没用，还会挡住远程控制或外接键鼠的人——而这些场景里盖子恰恰是不动的。
-/// 所以用"盖子在不在动"来判断，比猜"是不是有人在远程"可靠得多。
-///
-/// 同类实现（macTilt、MacBookDuo、MacBookUno）都只看角度、停在半路会一直糊着；
-/// 这里刻意不同。
-struct BlurGate {
-    static let closedAngle = 8.0            // 合死：本地什么都看不见，覆盖层只剩副作用
-    static let motionEpsilon = 1.5          // 传感器精度是整度，抖一度不算在动
-    static let settleDelay: TimeInterval = 1.0   // 合盖时手顿一下很正常，别一顿就闪没
+/// 两种情况让开：
+/// - 合死了：本地什么都看不见，覆盖层只会挡住远程画面
+/// - 屏幕正被持续监看（远程控制、屏幕共享、录屏）：覆盖层会盖住对方看到的画面
+enum BlurGate {
+    static let closedAngle = 8.0
 
-    private var anchorAngle: Double?
-    private var lastMotion = Date.distantPast
-
-    mutating func update(angle: Double, now: Date) {
-        guard let anchor = anchorAngle else {
-            anchorAngle = angle   // 第一次读数只当基准：启动时盖子本来就停着
-            return
-        }
-        if abs(angle - anchor) >= Self.motionEpsilon {
-            anchorAngle = angle
-            lastMotion = now
-        }
-    }
-
-    func shouldShow(angle: Double, now: Date) -> Bool {
-        angle > Self.closedAngle && now.timeIntervalSince(lastMotion) < Self.settleDelay
+    static func shouldShow(angle: Double, screenWatched: Bool) -> Bool {
+        angle > closedAngle && !screenWatched
     }
 }
 
@@ -41,7 +22,8 @@ final class DuoBlur {
     private var currentAlpha: CGFloat = 0
     private var voidLayer: CALayer?   // 暗场：越接近合死越黑
     private var cursorHidden = false
-    private var gate = BlurGate()
+    private var screenWatched = false
+    private var lastWatchCheck = Date.distantPast
 
     /// 光标由窗口服务器画在所有窗口之上，覆盖层盖不住它，只能显式隐藏。
     /// 起雾初期还留着（用户可能正在操作），糊到一半以后才收走。
@@ -106,17 +88,26 @@ final class DuoBlur {
 
     private func tick() {
         guard let angle = sensor.angle() else { return }
-        let now = Date()
-        gate.update(angle: angle, now: now)
 
-        // 合死了：立刻撤掉，本地已经看不见，留着只会挡住远程画面
-        guard angle > BlurGate.closedAngle else {
+        // 半秒查一次就够：远程连上到画面传过去本来就有延迟
+        let now = Date()
+        if now.timeIntervalSince(lastWatchCheck) >= 0.5 {
+            lastWatchCheck = now
+            let watched = ScreenWatch.isScreenWatched()
+            if watched != screenWatched {
+                screenWatched = watched
+                LidBlocker.log(watched ? "屏幕开始被持续监看（远程 / 共享 / 录屏），合盖模糊让开"
+                                       : "屏幕不再被监看，合盖模糊恢复")
+            }
+        }
+
+        // 合死了或者有人在看屏幕：立刻撤掉，不做淡出——淡出过程远程那边是看得见的
+        guard BlurGate.shouldShow(angle: angle, screenWatched: screenWatched) else {
             hideNow()
             return
         }
 
-        // 停下了就目标归零，下面的平滑跟随会让它柔和地淡出
-        let target = gate.shouldShow(angle: angle, now: now) ? CGFloat(Self.progress(forAngle: angle)) : 0
+        let target = CGFloat(Self.progress(forAngle: angle))
         currentAlpha += (target - currentAlpha) * 0.45  // 平滑跟随，避免传感器抖动
         if target == 0 && currentAlpha < 0.02 {
             hideNow()
