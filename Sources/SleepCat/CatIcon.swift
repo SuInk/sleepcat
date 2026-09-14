@@ -12,13 +12,24 @@ enum CatIcon {
     static let awake = make(awake: true)
     static let asleep = make(awake: false)
 
+    /// 整体放大倍数：下面所有坐标按 22×18 的构图写，最后等比放大。
+    /// 只改这一个数，猫、！！、Zz 的样式和相对位置都保持不变（状态栏厚 22pt，放得下）。
+    /// 取 10/9 让高度正好 20pt：图片尺寸不是整 pt 的话，Retina 上绘制要重新采样，边缘会发虚
+    static let scale: CGFloat = 10.0 / 9.0
+
+    /// 画布取整，多出来的一点点留空
+    static let canvasSize = NSSize(width: (22 * scale).rounded(.up), height: (18 * scale).rounded(.up))
+
     private static func make(awake: Bool) -> NSImage {
         // 右上角要放 Zz 或 ！！，两种状态画布同宽，切换时图标不会左右跳
-        let size = NSSize(width: 22, height: 18)
+        let size = canvasSize
         let image = NSImage(size: size, flipped: false) { _ in
             guard let ctx = NSGraphicsContext.current else { return true }
             NSColor.black.setFill()
             NSColor.black.setStroke()
+            let enlarge = NSAffineTransform()
+            enlarge.scale(by: scale)
+            enlarge.concat()
 
             // 猫身在 110×90 的设计坐标里画（比 22×18 好调比例），缩小 5 倍
             NSGraphicsContext.saveGraphicsState()
