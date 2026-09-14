@@ -24,8 +24,8 @@ enum CatIcon {
 
     private static func make(awake: Bool) -> NSImage {
         // 右上角要放 Zz 或 ！！，两种状态画布同宽，切换时图标不会左右跳；
-        // 头放大后右侧变挤，所以比最初的 22pt 宽一点
-        let size = NSSize(width: 24, height: 18)
+        // ！！ 和 Zz 要够粗够大才看得清，所以画布比猫头宽出一截
+        let size = NSSize(width: 25, height: 18)
         let image = NSImage(size: size, flipped: false) { _ in
             guard let ctx = NSGraphicsContext.current else { return true }
             NSColor.black.setFill()
@@ -46,13 +46,14 @@ enum CatIcon {
             // ── 右上角：精神喵冒 ！！，困困喵飘 Zz ──
             ctx.compositingOperation = .sourceOver
             if awake {
-                // 两个就好：三个在 18pt 高的菜单栏里挤成一团。右边那个更高，往右上方"冒"
-                drawBang(x: 18.6, y: 9.2, height: 6.6)
-                drawBang(x: 21.5, y: 10.6, height: 7.0)
+                // 两个就好：三个在 18pt 高的菜单栏里挤成一团。右边那个更高，往右上方"冒"。
+                // 竖条下端不能收太尖，否则真实分辨率下只剩一两个像素，看不清
+                drawBang(x: 18.9, y: 8.4, height: 7.2, width: 2.3, dot: 2.1, gap: 1.0, taper: 0.4)
+                drawBang(x: 22.2, y: 9.8, height: 7.8, width: 2.3, dot: 2.1, gap: 1.0, taper: 0.4)
             } else {
                 // 大 Z 在左下、小 z 在右上；和右耳之间留出空隙，不然会粘成一团
-                drawZ(x: 18.3, y: 9.6, width: 3.0, height: 3.0, stroke: 1.35)
-                drawZ(x: 21.1, y: 14.2, width: 1.8, height: 2.0, stroke: 1.05)
+                drawZ(x: 18.2, y: 8.6, width: 3.6, height: 3.6, stroke: 1.7)
+                drawZ(x: 21.6, y: 14.2, width: 2.3, height: 2.4, stroke: 1.35)
             }
             return true
         }
@@ -142,10 +143,10 @@ enum CatIcon {
     }
 
     /// 一个「！」：上粗下细的竖条 + 圆点，略微右倾（坐标单位是菜单栏图标画布上的 pt）
-    static func drawBang(x: CGFloat, y: CGFloat, height: CGFloat) {
-        let w: CGFloat = 1.8
-        let dot: CGFloat = 1.6
-        let gap: CGFloat = 0.9
+    /// 默认粗细是应用图标用的（那里放大了 5 倍，本来就够醒目）；菜单栏里另传更粗的值
+    static func drawBang(x: CGFloat, y: CGFloat, height: CGFloat,
+                         width w: CGFloat = 1.8, dot: CGFloat = 1.6, gap: CGFloat = 0.9,
+                         taper: CGFloat = 0.26) {
         NSGraphicsContext.saveGraphicsState()
         let t = NSAffineTransform()
         t.translateX(by: x, yBy: y)
@@ -159,8 +160,8 @@ enum CatIcon {
         let bar = NSBezierPath()
         bar.move(to: NSPoint(x: w / 2, y: top))
         bar.appendArc(withCenter: NSPoint(x: 0, y: top), radius: w / 2, startAngle: 0, endAngle: 180)
-        bar.line(to: NSPoint(x: -w * 0.26, y: base))
-        bar.line(to: NSPoint(x: w * 0.26, y: base))
+        bar.line(to: NSPoint(x: -w * taper, y: base))
+        bar.line(to: NSPoint(x: w * taper, y: base))
         bar.close()
         bar.fill()
         NSGraphicsContext.restoreGraphicsState()
