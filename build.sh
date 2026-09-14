@@ -27,7 +27,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key>      <string>$IDENTIFIER</string>
     <key>CFBundleName</key>            <string>SleepCat</string>
     <key>CFBundleDisplayName</key>     <string>SleepCat</string>
-    <key>CFBundleShortVersionString</key> <string>1.0</string>
+    <key>CFBundleShortVersionString</key> <string>1.1.0</string>
     <key>CFBundleVersion</key>         <string>1</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
     <key>CFBundleIconFile</key>        <string>AppIcon</string>
