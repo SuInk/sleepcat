@@ -55,7 +55,7 @@ import AppKit
 
     @Test func iconSizes() {
         // 右上角分别要放 ！！ 和 Zz；两种状态同宽，切换时菜单栏里的图标不会左右跳
-        #expect(CatIcon.awake.size == NSSize(width: 24, height: 18))
+        #expect(CatIcon.awake.size == NSSize(width: 25, height: 18))
         #expect(CatIcon.asleep.size == CatIcon.awake.size)
     }
 
