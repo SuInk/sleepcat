@@ -8,19 +8,36 @@ enum CatIcon {
     static let awake = make(awake: true)
     static let asleep = make(awake: false)
 
+    /// 猫头在设计坐标里占 y 2…72.5（到耳尖），换算到 18pt 高的画布
+    static let designHeadBottom: CGFloat = 2
+    static let designHeadTop: CGFloat = 72.5
+
+    /// 设计坐标 → 画布的缩放：猫头约 15.8pt 高，和旁边系统图标（16pt 左右）分量相当
+    static let headScale: CGFloat = 0.224
+
+    /// 猫头在画布里的位置：头的中心对准画布竖直中心。
+    /// 菜单栏按整张画布居中，头要是贴着底边画，看起来就比旁边的图标沉下去一截
+    static func headOffset(canvasHeight: CGFloat) -> NSPoint {
+        let center = (designHeadBottom + designHeadTop) / 2 * headScale
+        return NSPoint(x: 0.08, y: canvasHeight / 2 - center)
+    }
+
     private static func make(awake: Bool) -> NSImage {
-        // 右上角要放 Zz 或 ！！，两种状态画布同宽，切换时图标不会左右跳
-        let size = NSSize(width: 22, height: 18)
+        // 右上角要放 Zz 或 ！！，两种状态画布同宽，切换时图标不会左右跳；
+        // 头放大后右侧变挤，所以比最初的 22pt 宽一点
+        let size = NSSize(width: 24, height: 18)
         let image = NSImage(size: size, flipped: false) { _ in
             guard let ctx = NSGraphicsContext.current else { return true }
             NSColor.black.setFill()
             NSColor.black.setStroke()
 
-            // 猫身在 110×90 的设计坐标里画（比 22×18 好调比例），缩小 5 倍
+            // 猫头在 110×90 的设计坐标里画（比直接用 pt 好调比例），缩放后竖直居中
             NSGraphicsContext.saveGraphicsState()
-            let scale = NSAffineTransform()
-            scale.scale(by: 0.2)
-            scale.concat()
+            let offset = headOffset(canvasHeight: size.height)
+            let transform = NSAffineTransform()
+            transform.translateX(by: offset.x, yBy: offset.y)
+            transform.scale(by: headScale)
+            transform.concat()
             drawHead()
             ctx.compositingOperation = .destinationOut   // 下面画的都是挖空
             drawFace(awake: awake)
@@ -30,12 +47,12 @@ enum CatIcon {
             ctx.compositingOperation = .sourceOver
             if awake {
                 // 两个就好：三个在 18pt 高的菜单栏里挤成一团。右边那个更高，往右上方"冒"
-                drawBang(x: 17.6, y: 9.4, height: 6.6)
-                drawBang(x: 20.3, y: 10.9, height: 7.0)
+                drawBang(x: 19.1, y: 9.2, height: 6.6)
+                drawBang(x: 22.0, y: 10.6, height: 7.0)
             } else {
                 // 大 Z 在左下、小 z 在右上；和右耳之间留出空隙，不然会粘成一团
-                drawZ(x: 17.3, y: 9.0, width: 3.0, height: 3.0, stroke: 1.35)
-                drawZ(x: 19.8, y: 13.6, width: 1.7, height: 1.9, stroke: 1.05)
+                drawZ(x: 18.8, y: 9.6, width: 3.0, height: 3.0, stroke: 1.35)
+                drawZ(x: 21.6, y: 14.2, width: 1.8, height: 2.0, stroke: 1.05)
             }
             return true
         }

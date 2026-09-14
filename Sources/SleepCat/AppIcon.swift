@@ -58,7 +58,7 @@ enum AppIcon {
         cream.setStroke()
         CatIcon.mouthPath().stroke()
 
-        // 右上角的 ！！：和菜单栏图标同一套位置（它们用 22×18 坐标，放大 5 倍对齐设计坐标）
+        // 右上角的 ！！：沿用 22×18 画布时的位置，放大 5 倍对齐设计坐标（和图标整体构图配好的，别跟着菜单栏改）
         ink.setFill()
         let bangs = NSAffineTransform()
         bangs.scale(by: 5)
