@@ -55,19 +55,8 @@ import AppKit
 
     @Test func iconSizes() {
         // 右上角分别要放 ！！ 和 Zz；两种状态同宽，切换时菜单栏里的图标不会左右跳
-        #expect(CatIcon.awake.size == NSSize(width: 25, height: 18))
+        #expect(CatIcon.awake.size == NSSize(width: 22, height: 18))
         #expect(CatIcon.asleep.size == CatIcon.awake.size)
-    }
-
-    @Test func headIsVerticallyCenteredAndFullSized() {
-        let canvas: CGFloat = 18
-        let offset = CatIcon.headOffset(canvasHeight: canvas)
-        let bottom = offset.y + CatIcon.designHeadBottom * CatIcon.headScale
-        let top = offset.y + CatIcon.designHeadTop * CatIcon.headScale
-        // 贴着底边画的话会比旁边的图标沉下去一截
-        #expect(abs((bottom + top) / 2 - canvas / 2) < 0.01, "猫头的中心要对准画布中心")
-        #expect((14.5...15.5).contains(top - bottom), "头高约 15pt：再小显得弱，到 16pt 实心猫头又显得大：\(top - bottom)")
-        #expect(bottom >= 0 && top <= canvas, "不能超出画布被裁掉")
     }
 
     @Test func awakeAndAsleepLookDifferent() {

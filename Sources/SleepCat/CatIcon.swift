@@ -12,36 +12,19 @@ enum CatIcon {
     static let awake = make(awake: true)
     static let asleep = make(awake: false)
 
-    /// 猫头在设计坐标里占 y 2…72.5（到耳尖），换算到 18pt 高的画布
-    static let designHeadBottom: CGFloat = 2
-    static let designHeadTop: CGFloat = 72.5
-
-    /// 设计坐标 → 画布的缩放：猫头约 15pt 高。15.8pt 时和系统图标一样高，但猫头是实心块面，看着反而偏大
-    static let headScale: CGFloat = 0.213
-
-    /// 猫头在画布里的位置：头的中心对准画布竖直中心。
-    /// 菜单栏按整张画布居中，头要是贴着底边画，看起来就比旁边的图标沉下去一截
-    static func headOffset(canvasHeight: CGFloat) -> NSPoint {
-        let center = (designHeadBottom + designHeadTop) / 2 * headScale
-        return NSPoint(x: 0.08, y: canvasHeight / 2 - center)
-    }
-
     private static func make(awake: Bool) -> NSImage {
-        // 右上角要放 Zz 或 ！！，两种状态画布同宽，切换时图标不会左右跳；
-        // ！！ 和 Zz 要够粗够大才看得清，所以画布比猫头宽出一截
-        let size = NSSize(width: 25, height: 18)
+        // 右上角要放 Zz 或 ！！，两种状态画布同宽，切换时图标不会左右跳
+        let size = NSSize(width: 22, height: 18)
         let image = NSImage(size: size, flipped: false) { _ in
             guard let ctx = NSGraphicsContext.current else { return true }
             NSColor.black.setFill()
             NSColor.black.setStroke()
 
-            // 猫头在 110×90 的设计坐标里画（比直接用 pt 好调比例），缩放后竖直居中
+            // 猫身在 110×90 的设计坐标里画（比 22×18 好调比例），缩小 5 倍
             NSGraphicsContext.saveGraphicsState()
-            let offset = headOffset(canvasHeight: size.height)
-            let transform = NSAffineTransform()
-            transform.translateX(by: offset.x, yBy: offset.y)
-            transform.scale(by: headScale)
-            transform.concat()
+            let scale = NSAffineTransform()
+            scale.scale(by: 0.2)
+            scale.concat()
             drawHead()
             ctx.compositingOperation = .destinationOut   // 下面画的都是挖空
             drawFace(awake: awake)
@@ -50,14 +33,13 @@ enum CatIcon {
             // ── 右上角：精神喵冒 ！！，困困喵飘 Zz ──
             ctx.compositingOperation = .sourceOver
             if awake {
-                // 两个就好：三个在 18pt 高的菜单栏里挤成一团。右边那个更高，往右上方"冒"。
-                // 竖条下端不能收太尖，否则真实分辨率下只剩一两个像素，看不清
-                drawBang(x: 18.9, y: 8.4, height: 7.2, width: 2.3, dot: 2.1, gap: 1.0, taper: 0.4)
-                drawBang(x: 22.2, y: 9.8, height: 7.8, width: 2.3, dot: 2.1, gap: 1.0, taper: 0.4)
+                // 两个就好：三个在 18pt 高的菜单栏里挤成一团。右边那个更高，往右上方"冒"
+                drawBang(x: 17.6, y: 9.4, height: 6.6)
+                drawBang(x: 20.3, y: 10.9, height: 7.0)
             } else {
                 // 大 Z 在左下、小 z 在右上；和右耳之间留出空隙，不然会粘成一团
-                drawZ(x: 18.2, y: 8.6, width: 3.6, height: 3.6, stroke: 1.7)
-                drawZ(x: 21.6, y: 14.2, width: 2.3, height: 2.4, stroke: 1.35)
+                drawZ(x: 17.3, y: 9.0, width: 3.0, height: 3.0, stroke: 1.35)
+                drawZ(x: 19.8, y: 13.6, width: 1.7, height: 1.9, stroke: 1.05)
             }
             return true
         }
@@ -146,11 +128,11 @@ enum CatIcon {
         return m
     }
 
-    /// 一个「！」：上粗下细的竖条 + 圆点，略微右倾（坐标单位是菜单栏图标画布上的 pt）
-    /// 默认粗细是应用图标用的（那里放大了 5 倍，本来就够醒目）；菜单栏里另传更粗的值
-    static func drawBang(x: CGFloat, y: CGFloat, height: CGFloat,
-                         width w: CGFloat = 1.8, dot: CGFloat = 1.6, gap: CGFloat = 0.9,
-                         taper: CGFloat = 0.26) {
+    /// 一个「！」：上粗下细的竖条 + 圆点，略微右倾（菜单栏图标 22×18 坐标）
+    static func drawBang(x: CGFloat, y: CGFloat, height: CGFloat) {
+        let w: CGFloat = 1.8
+        let dot: CGFloat = 1.6
+        let gap: CGFloat = 0.9
         NSGraphicsContext.saveGraphicsState()
         let t = NSAffineTransform()
         t.translateX(by: x, yBy: y)
@@ -164,8 +146,8 @@ enum CatIcon {
         let bar = NSBezierPath()
         bar.move(to: NSPoint(x: w / 2, y: top))
         bar.appendArc(withCenter: NSPoint(x: 0, y: top), radius: w / 2, startAngle: 0, endAngle: 180)
-        bar.line(to: NSPoint(x: -w * taper, y: base))
-        bar.line(to: NSPoint(x: w * taper, y: base))
+        bar.line(to: NSPoint(x: -w * 0.26, y: base))
+        bar.line(to: NSPoint(x: w * 0.26, y: base))
         bar.close()
         bar.fill()
         NSGraphicsContext.restoreGraphicsState()
