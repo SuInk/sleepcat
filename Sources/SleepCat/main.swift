@@ -90,7 +90,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// 用过的旧应用 ID。偏好设置和辅助功能授权都是按应用 ID 记的，换 ID 时要照顾到
-    static let legacyBundleIDs = ["com.suink.sleepcat"]
+    static let legacyBundleIDs = ["com.earlyso.sleepcat", "com.suink.sleepcat"]
 
     /// 把旧应用 ID 下的偏好搬到当前 ID，包括进行中的喵住会话，这样换 ID 后
     /// 合盖模式、音效等设置不丢，正在喵住的也能无缝接上。只搬一次，不覆盖已有的值。
