@@ -47,38 +47,35 @@ enum CatIcon {
         return image
     }
 
-    /// 一颗圆包子头 + 两只尖耳朵（设计坐标 110×90，y 向上）。
-    /// 比例量自设计稿大图：头宽 : 头高 ≈ 1.27，最宽处在下半部分，底部圆润
-    private static func drawHead() {
-        // 最宽处压在下三分之一，从那里就开始往上收，才是圆包子而不是圆角方块
-        let head = NSBezierPath()
-        head.move(to: NSPoint(x: 40, y: 2))
-        head.curve(to: NSPoint(x: 79, y: 22), controlPoint1: NSPoint(x: 66, y: 2),
-                   controlPoint2: NSPoint(x: 79, y: 9))                    // 右下鼓出来
-        head.curve(to: NSPoint(x: 64, y: 54), controlPoint1: NSPoint(x: 79, y: 34),
-                   controlPoint2: NSPoint(x: 71, y: 50))                   // 右侧往上收窄
-        head.curve(to: NSPoint(x: 16, y: 54), controlPoint1: NSPoint(x: 54, y: 59),
-                   controlPoint2: NSPoint(x: 26, y: 59))                   // 头顶微微隆起
-        head.curve(to: NSPoint(x: 1, y: 22), controlPoint1: NSPoint(x: 9, y: 50),
-                   controlPoint2: NSPoint(x: 1, y: 34))                    // 左侧
-        head.curve(to: NSPoint(x: 40, y: 2), controlPoint1: NSPoint(x: 1, y: 9),
-                   controlPoint2: NSPoint(x: 14, y: 2))                    // 左下鼓出来
-        head.close()
-        head.fill()
-
-        // 耳朵：外沿顺着收窄的脸颊往上，内沿斜着落到头顶；三角形描粗圆角让耳尖变圆
-        for pts in [[NSPoint(x: 7, y: 40), NSPoint(x: 11, y: 71), NSPoint(x: 30, y: 56)],
-                    [NSPoint(x: 73, y: 40), NSPoint(x: 69, y: 71), NSPoint(x: 50, y: 56)]] {
-            let ear = NSBezierPath()
-            ear.move(to: pts[0])
-            ear.line(to: pts[1])
-            ear.line(to: pts[2])
-            ear.close()
-            ear.lineJoinStyle = .round
-            ear.lineWidth = 7
-            ear.fill()
-            ear.stroke()
-        }
+    /// 一颗圆包子头 + 两只尖耳朵，用当前填充色画（设计坐标 110×90，y 向上）。
+    /// 比例量自设计稿大图：头宽 : 头高 ≈ 1.27，最宽处在下半部分，底部圆润。
+    ///
+    /// 头和耳朵是**同一条连续轮廓**：分开画的话耳朵像贴上去的三角形，
+    /// 外侧和脸颊之间会有凹口，内侧和头顶之间是硬折角。每个接缝两侧的控制点都放在
+    /// 同一条直线上，线条在那里就是平滑过渡的。左右对称（以 x = 40 为轴）。
+    /// 应用图标也用这一份几何，保证两处是同一只猫
+    static func drawHead() {
+        let p = NSBezierPath()
+        p.move(to: NSPoint(x: 40, y: 2))
+        // 右半边：圆底 → 鼓出的脸颊 → 顺着往上长成耳朵外沿
+        p.curve(to: NSPoint(x: 79, y: 22), controlPoint1: NSPoint(x: 66, y: 2), controlPoint2: NSPoint(x: 79, y: 9))
+        p.curve(to: NSPoint(x: 75, y: 40), controlPoint1: NSPoint(x: 79, y: 30), controlPoint2: NSPoint(x: 75.8, y: 34))
+        p.curve(to: NSPoint(x: 73.5, y: 66.5), controlPoint1: NSPoint(x: 74.4, y: 46), controlPoint2: NSPoint(x: 74.2, y: 58))
+        // 宽而圆的耳尖
+        p.curve(to: NSPoint(x: 65.8, y: 68.8), controlPoint1: NSPoint(x: 73, y: 72.7), controlPoint2: NSPoint(x: 68.6, y: 74.2))
+        // 耳朵内沿斜着落下来，到头顶时逐渐转平（第二个控制点和终点同高），
+        // 形成柔和的内凹过渡；头顶本身只微微隆起，不能先往下压再弹回来，否则中间会鼓个包
+        p.curve(to: NSPoint(x: 50.5, y: 57.2), controlPoint1: NSPoint(x: 64.26, y: 65.83), controlPoint2: NSPoint(x: 56, y: 57.2))
+        p.curve(to: NSPoint(x: 40, y: 57.9), controlPoint1: NSPoint(x: 46.5, y: 57.2), controlPoint2: NSPoint(x: 43.5, y: 57.9))
+        // 左半边：上面的镜像
+        p.curve(to: NSPoint(x: 29.5, y: 57.2), controlPoint1: NSPoint(x: 36.5, y: 57.9), controlPoint2: NSPoint(x: 33.5, y: 57.2))
+        p.curve(to: NSPoint(x: 14.2, y: 68.8), controlPoint1: NSPoint(x: 24, y: 57.2), controlPoint2: NSPoint(x: 15.74, y: 65.83))
+        p.curve(to: NSPoint(x: 6.5, y: 66.5), controlPoint1: NSPoint(x: 11.4, y: 74.2), controlPoint2: NSPoint(x: 7, y: 72.7))
+        p.curve(to: NSPoint(x: 5, y: 40), controlPoint1: NSPoint(x: 5.8, y: 58), controlPoint2: NSPoint(x: 5.6, y: 46))
+        p.curve(to: NSPoint(x: 1, y: 22), controlPoint1: NSPoint(x: 4.2, y: 34), controlPoint2: NSPoint(x: 1, y: 30))
+        p.curve(to: NSPoint(x: 40, y: 2), controlPoint1: NSPoint(x: 1, y: 9), controlPoint2: NSPoint(x: 14, y: 2))
+        p.close()
+        p.fill()
     }
 
     /// 挖空的五官（调用前已切到 destinationOut）
@@ -94,18 +91,8 @@ enum CatIcon {
         let eyes: [CGFloat] = [22, 58]   // 设计稿里眼睛在头宽的 26% / 76% 处
 
         if awake {
-            // 大圆眼睛，略微竖长
-            for cx in eyes {
-                NSBezierPath(ovalIn: NSRect(x: cx - 6.2, y: 23, width: 12.4, height: 13.6)).fill()
-            }
-            // ω 嘴：两个连着的小 U，比上一版小一号
-            stroked(3.0) { m in
-                m.move(to: NSPoint(x: 34.5, y: 24.5))
-                m.curve(to: NSPoint(x: 40, y: 23), controlPoint1: NSPoint(x: 34.5, y: 19),
-                        controlPoint2: NSPoint(x: 40, y: 19))
-                m.curve(to: NSPoint(x: 45.5, y: 24.5), controlPoint1: NSPoint(x: 40, y: 19),
-                        controlPoint2: NSPoint(x: 45.5, y: 19))
-            }
+            awakeEyeRects.forEach { NSBezierPath(ovalIn: $0).fill() }
+            mouthPath().stroke()
         } else {
             // 闭着的 U 形眼睛
             for cx in eyes {
@@ -122,8 +109,27 @@ enum CatIcon {
         }
     }
 
-    /// 一个「！」：上粗下细的竖条 + 圆点，略微右倾
-    private static func drawBang(x: CGFloat, y: CGFloat, height: CGFloat) {
+    /// 精神喵的大圆眼睛，略微竖长（设计坐标）
+    static let awakeEyeRects = [22, 58].map { cx in
+        NSRect(x: CGFloat(cx) - 6.2, y: 23, width: 12.4, height: 13.6)
+    }
+
+    /// ω 嘴：两个连着的小 U（设计坐标，已设好线宽和圆头）
+    static func mouthPath() -> NSBezierPath {
+        let m = NSBezierPath()
+        m.lineWidth = 3.0
+        m.lineCapStyle = .round
+        m.lineJoinStyle = .round
+        m.move(to: NSPoint(x: 34.5, y: 24.5))
+        m.curve(to: NSPoint(x: 40, y: 23), controlPoint1: NSPoint(x: 34.5, y: 19),
+                controlPoint2: NSPoint(x: 40, y: 19))
+        m.curve(to: NSPoint(x: 45.5, y: 24.5), controlPoint1: NSPoint(x: 40, y: 19),
+                controlPoint2: NSPoint(x: 45.5, y: 19))
+        return m
+    }
+
+    /// 一个「！」：上粗下细的竖条 + 圆点，略微右倾（菜单栏图标 22×18 坐标）
+    static func drawBang(x: CGFloat, y: CGFloat, height: CGFloat) {
         let w: CGFloat = 1.8
         let dot: CGFloat = 1.6
         let gap: CGFloat = 0.9
