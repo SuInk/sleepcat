@@ -334,6 +334,33 @@ import AppKit
     }
 }
 
+@Suite struct UpdateCheckerTests {
+    @Test func comparesVersionsNumerically() {
+        #expect(UpdateChecker.isNewer("1.2.0", than: "1.1.0"))
+        #expect(UpdateChecker.isNewer("1.10.0", than: "1.9.0"), "按数字比，不能按字符串比")
+        #expect(UpdateChecker.isNewer("2.0", than: "1.99.99"))
+        #expect(!UpdateChecker.isNewer("1.1.0", than: "1.1.0"))
+        #expect(!UpdateChecker.isNewer("1.0.9", than: "1.1.0"), "旧版本不能提示更新")
+    }
+
+    @Test func toleratesTagPrefixAndShortVersions() {
+        #expect(!UpdateChecker.isNewer("v1.2", than: "1.2.0"), "v 前缀和补零不影响比较")
+        #expect(UpdateChecker.isNewer("v1.2.1", than: "1.2"))
+    }
+
+    @Test func parsesGitHubLatestRelease() throws {
+        let json = #"{"tag_name":"v1.2.0","html_url":"https://github.com/SuInk/sleepcat/releases/tag/v1.2.0","name":"SleepCat 1.2.0"}"#
+        let release = try #require(UpdateChecker.parse(Data(json.utf8)))
+        #expect(release.version == "1.2.0")
+        #expect(release.page.absoluteString.hasSuffix("/v1.2.0"))
+    }
+
+    @Test func rejectsUnexpectedPayloads() {
+        #expect(UpdateChecker.parse(Data(#"{"message":"Not Found"}"#.utf8)) == nil)
+        #expect(UpdateChecker.parse(Data("not json".utf8)) == nil)
+    }
+}
+
 @Suite struct LidRuleRestoreTests {
     @Test func promptsWhenLidModeIsOnButTheRuleIsGone() {
         #expect(SleepCatApp.shouldRestoreLidRule(lidEnabled: true, ruleUsable: false,

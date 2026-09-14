@@ -50,6 +50,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var headerItem: NSMenuItem?
     private var lidWatchdog: Timer?
     private var permissionPoll: Timer?
+    private var updateTimer: Timer?
+    private var availableUpdate: UpdateChecker.Release?   // 后台检查发现的新版本，菜单里显示
     private var activePreset: Int?   // 当前生效的定时预设（分钟）
 
     // 偏好
@@ -146,6 +148,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // 等启动流程走完、菜单栏图标出来了再检查，别在应用还没露面时就弹授权框
         DispatchQueue.main.async { [weak self] in self?.restoreLidRuleIfNeeded() }
+
+        startAutomaticUpdateChecks()
 
         battery.onChange = { [weak self] status in self?.checkBattery(status) }
         battery.start()
@@ -454,6 +458,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(recommend)
         menu.setSubmenu(recommendMenu, for: recommend)
 
+        let updateTitle = availableUpdate.map { "更新到 \($0.version)…" } ?? "检查更新…"
+        menu.addItem(makeItem(updateTitle, #selector(checkForUpdates), symbol: "arrow.triangle.2.circlepath"))
         menu.addItem(makeItem("项目主页…", #selector(openHomepage), symbol: "link"))
         menu.addItem(makeItem("退出 SleepCat", #selector(quit), symbol: "power", key: "q"))
 
@@ -611,6 +617,96 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+    }
+
+    // MARK: 检查更新
+
+    /// 每天自动查一次（要联网访问 GitHub，所以可以在检查更新的弹窗里关掉）
+    private var autoUpdateCheck: Bool {
+        get { UserDefaults.standard.object(forKey: "autoUpdateCheck") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoUpdateCheck") }
+    }
+
+    private func startAutomaticUpdateChecks() {
+        updateTimer?.invalidate()
+        guard autoUpdateCheck else { return }
+        // 启动先等一会儿再查，别和启动流程抢；之后每小时看一眼是否已满一天
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.backgroundUpdateCheck() }
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            self?.backgroundUpdateCheck()
+        }
+    }
+
+    private func backgroundUpdateCheck() {
+        let defaults = UserDefaults.standard
+        guard autoUpdateCheck else { return }
+        if let last = defaults.object(forKey: "lastUpdateCheck") as? Date,
+           Date().timeIntervalSince(last) < 86_400 { return }
+        UpdateChecker.fetchLatest { [weak self] result in
+            guard let self, case .success(let release) = result else { return }   // 后台失败就安静地算了
+            defaults.set(Date(), forKey: "lastUpdateCheck")
+            guard UpdateChecker.isNewer(release.version, than: UpdateChecker.currentVersion) else { return }
+            self.availableUpdate = release
+            // 同一个版本只提醒一次，之后靠菜单里的「更新到 x.x.x…」
+            guard defaults.string(forKey: "notifiedUpdateVersion") != release.version else { return }
+            defaults.set(release.version, forKey: "notifiedUpdateVersion")
+            Toast.show("SleepCat \(release.version) 可以更新了，右键菜单里更新", below: self.statusItem?.button)
+        }
+    }
+
+    @objc private func checkForUpdates() {
+        UpdateChecker.fetchLatest { [weak self] result in
+            guard let self else { return }
+            UserDefaults.standard.set(Date(), forKey: "lastUpdateCheck")
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            let current = UpdateChecker.currentVersion
+            var release: UpdateChecker.Release?
+
+            switch result {
+            case .failure(let error):
+                alert.alertStyle = .warning
+                alert.messageText = "检查更新失败"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "好")
+            case .success(let latest) where UpdateChecker.isNewer(latest.version, than: current):
+                release = latest
+                self.availableUpdate = latest
+                alert.messageText = "SleepCat \(latest.version) 可以更新了"
+                if UpdateChecker.installedViaHomebrew {
+                    alert.informativeText = "当前是 \(current)。你是用 Homebrew 装的，在终端运行：\n\n\(UpdateChecker.upgradeCommand)"
+                    alert.addButton(withTitle: "复制升级命令")
+                } else {
+                    alert.informativeText = "当前是 \(current)。"
+                    alert.addButton(withTitle: "去下载")
+                }
+                alert.addButton(withTitle: "查看更新内容")
+                alert.addButton(withTitle: "以后再说")
+            case .success:
+                self.availableUpdate = nil
+                alert.messageText = "已经是最新版本"
+                alert.informativeText = "当前是 \(current)。"
+                alert.addButton(withTitle: "好")
+            }
+
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = "每天自动检查更新"
+            alert.suppressionButton?.state = self.autoUpdateCheck ? .on : .off
+            let response = alert.runModal()
+            self.autoUpdateCheck = alert.suppressionButton?.state == .on
+            self.startAutomaticUpdateChecks()
+
+            guard let release else { return }
+            switch response {
+            case .alertFirstButtonReturn where UpdateChecker.installedViaHomebrew:
+                self.copyToPasteboard(UpdateChecker.upgradeCommand)
+                Toast.show("已复制，粘贴到终端运行就能升级", below: self.statusItem?.button)
+            case .alertFirstButtonReturn, .alertSecondButtonReturn:
+                NSWorkspace.shared.open(release.page)
+            default:
+                break
+            }
+        }
     }
 
     @objc private func openHomepage() {
@@ -906,6 +1002,25 @@ if let i = CommandLine.arguments.firstIndex(of: "--make-iconset"), CommandLine.a
         FileHandle.standardError.write("iconset 生成失败：\(error)\n".data(using: .utf8)!)
         exit(1)
     }
+}
+
+// 调试：./SleepCat --check-update 真的去 GitHub 查一次最新版本，打印结果后退出
+if CommandLine.arguments.contains("--check-update") {
+    UpdateChecker.fetchLatest { result in
+        switch result {
+        case .success(let r):
+            print("当前 \(UpdateChecker.currentVersion)，最新 \(r.version)，" +
+                  "需要更新：\(UpdateChecker.isNewer(r.version, than: UpdateChecker.currentVersion))，" +
+                  "Homebrew 安装：\(UpdateChecker.installedViaHomebrew)，页面 \(r.page)")
+            exit(0)
+        case .failure(let e):
+            print("失败：\(e.localizedDescription)")
+            exit(1)
+        }
+    }
+    RunLoop.main.run(until: Date().addingTimeInterval(20))
+    print("超时")
+    exit(1)
 }
 
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出
