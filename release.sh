@@ -49,9 +49,9 @@ else
     gh release create "v$VERSION" "$ZIP" --title "SleepCat $VERSION" --generate-notes
 fi
 
-# 4. 更新 Cask 并推送 tap
-sed -E -i '' "s|^(  version \").*(\")$|\1$VERSION\2|; s|^(  sha256 \").*(\")$|\1$SHA\2|" "$CASK"
+# 4. 更新 Cask 并推送 tap（先拉再改：改完再拉会因为有未提交改动被 git 拒绝）
 git -C "$TAP_DIR" pull -q --rebase
+sed -E -i '' "s|^(  version \").*(\")$|\1$VERSION\2|; s|^(  sha256 \").*(\")$|\1$SHA\2|" "$CASK"
 git -C "$TAP_DIR" commit -qam "$(commit_message "sleepcat $VERSION")"
 git -C "$TAP_DIR" push -q
 
