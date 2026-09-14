@@ -48,7 +48,6 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var menuRefreshTimer: Timer?
     private var deadline: Date?
     private var headerItem: NSMenuItem?
-    private var heartbeatTimer: Timer?
     private var lidWatchdog: Timer?
     private var activePreset: Int?   // 当前生效的定时预设（分钟）
 
@@ -193,19 +192,17 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: 会话持久化
     //
-    // 应用被强杀或崩溃时，喵住会话不能就这么没了：那会让 disablesleep 被下次启动
-    // 的自愈逻辑清掉，用户合着盖子的 Mac 就直接睡了。这里把会话存下来，
-    // 靠心跳区分"刚刚被打断"和"上次开机时的旧会话"。
+    // 喵住是用户的意图，只有用户亲手「放猫猫去睡」或定时到点才算结束。
+    // 退出应用、应用更新、崩溃、重启 Mac 都只是暂时中断：应用不在跑的时候放 Mac 正常休眠，
+    // 下次打开接着喵。所以退出时不清会话，只在 deactivate 里清。
 
     private static let sessionActiveKey = "sessionActive"
     private static let sessionDeadlineKey = "sessionDeadline"
     private static let sessionPresetKey = "sessionPreset"
-    private static let sessionBeatKey = "sessionHeartbeat"
 
-    /// 会话是否值得恢复：必须有新鲜心跳（默认 5 分钟内），且定时还没到点
-    static func shouldResume(active: Bool, heartbeat: Date?, deadline: Date?,
-                             now: Date = Date(), maxGap: TimeInterval = 300) -> Bool {
-        guard active, let heartbeat, now.timeIntervalSince(heartbeat) < maxGap else { return false }
+    /// 上次的喵住要不要接着来：开着、而且定时还没到点
+    static func shouldResume(active: Bool, deadline: Date?, now: Date = Date()) -> Bool {
+        guard active else { return false }
         if let deadline, deadline <= now { return false }
         return true
     }
@@ -215,33 +212,28 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         d.set(true, forKey: Self.sessionActiveKey)
         d.set(deadline, forKey: Self.sessionDeadlineKey)
         d.set(activePreset, forKey: Self.sessionPresetKey)
-        d.set(Date(), forKey: Self.sessionBeatKey)
-        heartbeatTimer?.invalidate()
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
-            UserDefaults.standard.set(Date(), forKey: Self.sessionBeatKey)
-        }
     }
 
     private func clearSession() {
-        heartbeatTimer?.invalidate()
-        heartbeatTimer = nil
         let d = UserDefaults.standard
-        [Self.sessionActiveKey, Self.sessionDeadlineKey,
-         Self.sessionPresetKey, Self.sessionBeatKey].forEach { d.removeObject(forKey: $0) }
+        [Self.sessionActiveKey, Self.sessionDeadlineKey, Self.sessionPresetKey,
+         "sessionHeartbeat"].forEach { d.removeObject(forKey: $0) }   // 心跳是旧版本留下的，顺手清掉
     }
 
     @discardableResult
     private func resumeInterruptedSession() -> Bool {
         let d = UserDefaults.standard
         let saved = d.object(forKey: Self.sessionDeadlineKey) as? Date
-        guard Self.shouldResume(active: d.bool(forKey: Self.sessionActiveKey),
-                                heartbeat: d.object(forKey: Self.sessionBeatKey) as? Date,
-                                deadline: saved) else {
+        guard Self.shouldResume(active: d.bool(forKey: Self.sessionActiveKey), deadline: saved) else {
             clearSession()
             return false
         }
         activePreset = d.object(forKey: Self.sessionPresetKey) as? Int
         activate(duration: saved?.timeIntervalSinceNow, resumed: true)
+        // 可能隔了很久才打开应用，自己喵起来得说一声，不然用户会奇怪 Mac 怎么不睡了
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            Toast.show("已恢复上次的喵住", below: self?.statusItem?.button)
+        }
         return true
     }
 
@@ -879,16 +871,13 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func quit() {
-        blocker.stop()
-        restoreLidSleepIfNeeded()
-        clearSession()   // 主动退出＝有意结束，下次启动不该自己又喵起来
         NSApp.terminate(nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // 应用不在跑时没人管合盖和休眠，得把 Mac 交还给系统；但不清会话，下次打开接着喵
         blocker.stop()
         restoreLidSleepIfNeeded()
-        clearSession()
         duoBlur?.stop()   // 确保光标一定还给用户
         keyboardLock.unlock()
     }
