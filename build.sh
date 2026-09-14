@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 swift build -c release
 
 APP="SleepCat.app"
-IDENTIFIER="com.earlyso.sleepcat"
+IDENTIFIER="cn.suink.sleepcat"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
