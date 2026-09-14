@@ -12,8 +12,8 @@ enum CatIcon {
     static let designHeadBottom: CGFloat = 2
     static let designHeadTop: CGFloat = 72.5
 
-    /// 设计坐标 → 画布的缩放：猫头约 15.8pt 高，和旁边系统图标（16pt 左右）分量相当
-    static let headScale: CGFloat = 0.224
+    /// 设计坐标 → 画布的缩放：猫头约 15pt 高。15.8pt 时和系统图标一样高，但猫头是实心块面，看着反而偏大
+    static let headScale: CGFloat = 0.213
 
     /// 猫头在画布里的位置：头的中心对准画布竖直中心。
     /// 菜单栏按整张画布居中，头要是贴着底边画，看起来就比旁边的图标沉下去一截
@@ -47,12 +47,12 @@ enum CatIcon {
             ctx.compositingOperation = .sourceOver
             if awake {
                 // 两个就好：三个在 18pt 高的菜单栏里挤成一团。右边那个更高，往右上方"冒"
-                drawBang(x: 19.1, y: 9.2, height: 6.6)
-                drawBang(x: 22.0, y: 10.6, height: 7.0)
+                drawBang(x: 18.6, y: 9.2, height: 6.6)
+                drawBang(x: 21.5, y: 10.6, height: 7.0)
             } else {
                 // 大 Z 在左下、小 z 在右上；和右耳之间留出空隙，不然会粘成一团
-                drawZ(x: 18.8, y: 9.6, width: 3.0, height: 3.0, stroke: 1.35)
-                drawZ(x: 21.6, y: 14.2, width: 1.8, height: 2.0, stroke: 1.05)
+                drawZ(x: 18.3, y: 9.6, width: 3.0, height: 3.0, stroke: 1.35)
+                drawZ(x: 21.1, y: 14.2, width: 1.8, height: 2.0, stroke: 1.05)
             }
             return true
         }
@@ -141,7 +141,7 @@ enum CatIcon {
         return m
     }
 
-    /// 一个「！」：上粗下细的竖条 + 圆点，略微右倾（菜单栏图标 22×18 坐标）
+    /// 一个「！」：上粗下细的竖条 + 圆点，略微右倾（坐标单位是菜单栏图标画布上的 pt）
     static func drawBang(x: CGFloat, y: CGFloat, height: CGFloat) {
         let w: CGFloat = 1.8
         let dot: CGFloat = 1.6
