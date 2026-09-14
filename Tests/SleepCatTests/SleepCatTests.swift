@@ -66,7 +66,7 @@ import AppKit
         let top = offset.y + CatIcon.designHeadTop * CatIcon.headScale
         // 贴着底边画的话会比旁边的图标沉下去一截
         #expect(abs((bottom + top) / 2 - canvas / 2) < 0.01, "猫头的中心要对准画布中心")
-        #expect((15...16.5).contains(top - bottom), "头高应和系统图标的 16pt 左右相当：\(top - bottom)")
+        #expect((14.5...15.5).contains(top - bottom), "头高约 15pt：再小显得弱，到 16pt 实心猫头又显得大：\(top - bottom)")
         #expect(bottom >= 0 && top <= canvas, "不能超出画布被裁掉")
     }
 
