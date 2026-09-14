@@ -49,6 +49,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var deadline: Date?
     private var headerItem: NSMenuItem?
     private var lidWatchdog: Timer?
+    private var permissionPoll: Timer?
     private var activePreset: Int?   // 当前生效的定时预设（分钟）
 
     // 偏好
@@ -842,22 +843,33 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.messageText = "清洁键盘需要「辅助功能」权限"
-            alert.informativeText = """
-            禁用键盘要拦截系统的按键事件，macOS 规定这需要辅助功能权限。
-
-            如果设置里 SleepCat 看起来已经是打开的：那是早期版本留下的授权记录，已经失效，关掉再打开也没用。点「重新授权」会先清掉它。授权一次后，以后更新应用都不用再授权。
-
-            之后在列表里打开 SleepCat，再回来点一次「清洁键盘…」。
-            """
-            alert.addButton(withTitle: "重新授权")
+            alert.informativeText = "禁用键盘要拦截系统的按键事件，macOS 规定这需要辅助功能权限。"
+            alert.addButton(withTitle: "去授权")
             alert.addButton(withTitle: "取消")
             if alert.runModal() == .alertFirstButtonReturn {
                 KeyboardLock.requestPermission(alsoReset: Self.legacyBundleIDs)
+                waitForAccessibilityGrant()
             }
             return
         }
         if let err = keyboardLock.lock() {
             showWarning("没能禁用键盘", err)
+        }
+    }
+
+    /// 用户去系统设置里打开授权后，这边没有任何动静会让人不知道下一步干嘛；
+    /// 盯着授权状态，一变成已授权就提示一句。三分钟没等到就不等了
+    private func waitForAccessibilityGrant() {
+        permissionPoll?.invalidate()
+        let started = Date()
+        permissionPoll = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard let self else { return timer.invalidate() }
+            if KeyboardLock.hasPermission {
+                timer.invalidate()
+                Toast.show("授权好了，再点一次「清洁键盘」就能用", below: self.statusItem?.button)
+            } else if Date().timeIntervalSince(started) > 180 {
+                timer.invalidate()
+            }
         }
     }
 
