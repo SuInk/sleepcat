@@ -124,6 +124,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateLegacyDefaults()   // 必须在读任何设置之前
         Notifier.shared.setUp()
+        if lowBatteryThreshold != nil, BatteryMonitor.read() != nil {
+            Notifier.shared.requestAuthorizationIfNeeded()
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "SleepCat"   // 记住用户 ⌘ 拖动后的位置
         if let button = statusItem.button {
@@ -388,8 +391,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lowBatteryThreshold = sender.tag > 0 ? sender.tag : nil
         // 改完阈值立刻按新值判定：比如电量 25% 时把阈值调到 30%，就该马上停
         lowBatteryGuard = LowBatteryGuard()
+        if lowBatteryThreshold != nil { Notifier.shared.requestAuthorizationIfNeeded() }
         if let status = BatteryMonitor.read() { checkBattery(status) }
     }
+
+    @objc private func openNotificationSettings() { Notifier.shared.openSettings() }
 
     private func deactivate() {
         blocker.stop()
@@ -437,6 +443,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func showMenu() {
+        Notifier.shared.refreshStatus()
         let menu = buildMenu()
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
@@ -510,6 +517,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 item.tag = value
                 item.state = (lowBatteryThreshold ?? 0) == value ? .on : .off
                 thresholds.addItem(item)
+            }
+            if lowBatteryThreshold != nil, Notifier.shared.isDenied {
+                thresholds.addItem(.separator())
+                let notify = makeItem("打开通知提醒…", #selector(openNotificationSettings))
+                notify.toolTip = "SleepCat 的通知被关掉了，暂停和恢复时只会在菜单栏下闪一下。去系统设置里打开"
+                thresholds.addItem(notify)
             }
             menu.addItem(lowItem)
             menu.setSubmenu(thresholds, for: lowItem)
@@ -1140,8 +1153,8 @@ if CommandLine.arguments.contains("--test-notification") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { exit(0) }
         }
     }
-    RunLoop.main.run(until: Date().addingTimeInterval(90))   // 留时间给用户点「允许」
-    exit(0)
+    // 不设超时：授权框还没点就退出，系统会把这次请求记成「拒绝」
+    RunLoop.main.run()
 }
 
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出
