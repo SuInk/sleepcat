@@ -1,0 +1,41 @@
+<!doctype html><meta charset="utf-8">
+<style>
+body{margin:0;background:transparent;font-family:-apple-system,"PingFang SC",sans-serif}
+.grid{display:grid;grid-template-columns:repeat(2,300px);gap:16px;padding:16px}
+.tile{border-radius:16px;overflow:hidden;height:150px;position:relative;box-shadow:0 1px 2px rgba(0,0,0,.08),0 8px 24px rgba(0,0,0,.10)}
+.light{background:linear-gradient(135deg,#d7e6f7,#f3e6f1 60%,#fbefe2)}
+.dark{background:linear-gradient(135deg,#1d2640,#2b2140 60%,#3a2531)}
+.bar{position:absolute;left:0;right:0;top:0;height:64px;display:flex;align-items:center;justify-content:center;gap:30px}
+.light .bar{background:rgba(255,255,255,.5)}
+.dark .bar{background:rgba(0,0,0,.3)}
+canvas{width:50px;height:40px}
+.glyph{width:30px;height:10px;border-radius:5px;opacity:.22}
+.light .glyph{background:#000}.dark .glyph{background:#fff}
+.cap{position:absolute;left:0;right:0;bottom:22px;text-align:center;font-size:20px;font-weight:600}
+.cap small{display:block;font-size:14px;font-weight:400;margin-top:4px;opacity:.65}
+.light .cap{color:#1d1d1f}.dark .cap{color:#f5f5f7}
+</style>
+<div class="grid">
+ <div class="tile light"><div class="bar"><span class="glyph"></span><canvas data-src="awake" data-ink="0,0,0"></canvas><span class="glyph"></span></div><div class="cap">喵住中<small>Mac 不休眠</small></div></div>
+ <div class="tile light"><div class="bar"><span class="glyph"></span><canvas data-src="asleep" data-ink="0,0,0"></canvas><span class="glyph"></span></div><div class="cap">打盹中<small>Mac 正常休眠</small></div></div>
+ <div class="tile dark"><div class="bar"><span class="glyph"></span><canvas data-src="awake" data-ink="255,255,255"></canvas><span class="glyph"></span></div><div class="cap">喵住中<small>深色菜单栏自动变白</small></div></div>
+ <div class="tile dark"><div class="bar"><span class="glyph"></span><canvas data-src="asleep" data-ink="255,255,255"></canvas><span class="glyph"></span></div><div class="cap">打盹中<small>深色菜单栏自动变白</small></div></div>
+</div>
+<script>
+// 图标是白底黑图：按亮度转成透明度，再染成菜单栏前景色，跟模板图的效果一样
+document.querySelectorAll('canvas').forEach(c => {
+  const img = new Image();
+  img.onload = () => {
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height), p = d.data;
+    const [r, gg, b] = c.dataset.ink.split(',').map(Number);
+    for (let i = 0; i < p.length; i += 4) {
+      const a = 255 - (p[i] + p[i+1] + p[i+2]) / 3;
+      p[i] = r; p[i+1] = gg; p[i+2] = b; p[i+3] = a;
+    }
+    g.putImageData(d, 0, 0);
+  };
+  img.src = '../' + c.dataset.src + '.png';
+});
+</script>

@@ -203,6 +203,15 @@ final class KeyboardLock: NSObject {
         let content = makeContent(size: size, target: nil, action: nil)
         // 离屏时毛玻璃采不到背后的内容，垫一层底色好看清排版
         content.layer?.backgroundColor = NSColor(white: 0.18, alpha: 1).cgColor
+        // 次要文字的颜色靠毛玻璃的混色提亮，离屏画出来会暗得看不清，这里换成等效的实色
+        func flatten(_ view: NSView) {
+            if let label = view as? NSTextField {
+                if label.textColor == .secondaryLabelColor { label.textColor = NSColor(white: 1, alpha: 0.72) }
+                if label.textColor == .tertiaryLabelColor { label.textColor = NSColor(white: 1, alpha: 0.5) }
+            }
+            view.subviews.forEach(flatten)
+        }
+        flatten(content)
         w.contentView = content
         content.layoutSubtreeIfNeeded()
         guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
