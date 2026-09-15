@@ -1,5 +1,6 @@
 import AppKit
 import IOKit.pwr_mgt
+import UserNotifications
 
 // MARK: - 电源断言管理（真正"喵住"Mac 的部分）
 
@@ -118,6 +119,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateLegacyDefaults()   // 必须在读任何设置之前
+        Notifier.shared.setUp()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "SleepCat"   // 记住用户 ⌘ 拖动后的位置
         if let button = statusItem.button {
@@ -263,6 +265,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         autoStopNote = nil
         pausedForLowBattery = false
         batteryRecheck?.invalidate()
+        if !resumed, lowBatteryThreshold != nil, BatteryMonitor.read() != nil {
+            Notifier.shared.requestAuthorizationIfNeeded()
+        }
         if !resumed, let status = BatteryMonitor.read(),
            lowBatteryGuard.noteManualStart(status, threshold: lowBatteryThreshold) {
             Toast.show("电量 \(status.percent)%，这次不会因为电量低暂停", below: statusItem?.button)
@@ -329,7 +334,13 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         playSound(awake: false)
         updateIcon()
         island.peek()
-        Toast.show("电量 \(status.percent)%，先暂停喵住；插上电源会自动恢复", below: statusItem?.button)
+        Notifier.shared.post(
+            id: "lowBattery", title: "喵住已暂停",
+            body: "电量 \(status.percent)%，Mac 现在可以正常休眠。插上电源会自动恢复喵住。",
+            sound: !soundEnabled   // 开着音效时刚才已经呼噜过一声，别再响第二声
+        ) { [weak self] in
+            Toast.show("电量 \(status.percent)%，先暂停喵住；插上电源会自动恢复", below: self?.statusItem?.button)
+        }
         LidBlocker.log("低电量暂停：\(status.percent)%，阈值 \(lowBatteryThreshold ?? 0)%")
     }
 
@@ -352,7 +363,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         activate(duration: deadline?.timeIntervalSinceNow, resumed: !manual)
         if !manual {
-            Toast.show(notice, below: statusItem?.button)
+            Notifier.shared.post(id: "lowBattery", title: "喵住已恢复", body: notice, sound: false) { [weak self] in
+                Toast.show(notice, below: self?.statusItem?.button)
+            }
             LidBlocker.log("低电量暂停后自动恢复：\(notice)")
         }
     }
@@ -1104,6 +1117,27 @@ if CommandLine.arguments.contains("--check-update") {
     RunLoop.main.run(until: Date().addingTimeInterval(20))
     print("超时")
     exit(1)
+}
+
+// 调试：open -n SleepCat.app --args --test-notification
+// 请求通知权限并发一条测试通知，结果写进 SleepCat.log。要从应用包启动，直接跑二进制拿不到通知中心
+if CommandLine.arguments.contains("--test-notification") {
+    Notifier.shared.setUp()
+    UNUserNotificationCenter.current().getNotificationSettings { settings in
+        LidBlocker.log("测试通知：当前授权状态 \(settings.authorizationStatus.rawValue)（0 未决定 1 拒绝 2 允许 3 临时）")
+    }
+    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+        LidBlocker.log("测试通知：授权\(granted ? "已允许" : "未允许")\(error.map { "，\($0.localizedDescription)" } ?? "")")
+        let content = UNMutableNotificationContent()
+        content.title = "SleepCat 通知测试"
+        content.body = "看到这条，说明低电量暂停和恢复时的通知能正常弹出"
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "test", content: content, trigger: nil)) { error in
+            LidBlocker.log("测试通知：\(error.map { "发送失败，\($0.localizedDescription)" } ?? "已交给通知中心")")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { exit(0) }
+        }
+    }
+    RunLoop.main.run(until: Date().addingTimeInterval(90))   // 留时间给用户点「允许」
+    exit(0)
 }
 
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出
