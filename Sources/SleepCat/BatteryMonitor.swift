@@ -51,7 +51,7 @@ final class BatteryMonitor {
 struct LowBatteryGuard {
     static let grace: TimeInterval = 60
     /// 在电池上靠电量回升来恢复时要多出的余量，免得电量在阈值上下跳动时反复暂停、恢复
-    static let resumeMargin = 5
+    static let resumeMargin = 2
 
     private(set) var armed = true
     private var lowSince: Date?
