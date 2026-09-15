@@ -42,7 +42,13 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let keyboardLock = KeyboardLock()
     private let battery = BatteryMonitor()
     private var lowBatteryGuard = LowBatteryGuard()
-    private var autoStopNote: String?   // 因为电量低被自动停下时，状态头里说明原因
+    private var autoStopNote: String?   // 因为电量低被暂停时，状态头里说明原因
+    private var batteryRecheck: Timer?  // 低电量确认期到点后复查（电量不变时系统不会再通知）
+    /// 喵住因为电量低被暂停、等电源回来自动恢复。会话存档保留着，退出重开也记得
+    private var pausedForLowBattery: Bool {
+        get { UserDefaults.standard.bool(forKey: "pausedForLowBattery") }
+        set { UserDefaults.standard.set(newValue, forKey: "pausedForLowBattery") }
+    }
     private var duoBlur: DuoBlur?
     private var offTimer: Timer?
     private var menuRefreshTimer: Timer?
@@ -77,7 +83,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         get { UserDefaults.standard.object(forKey: "duoEnabled") as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: "duoEnabled") }
     }
-    /// 用电池时电量低于这个百分比就自动停止喵住；nil = 关闭。默认 20%，
+    /// 用电池时电量低于这个百分比就暂停喵住、插上电源自动恢复；nil = 关闭。默认 20%，
     /// 合盖塞包里喵住着把电耗光是最糟的情况，所以默认开着
     private var lowBatteryThreshold: Int? {
         get {
@@ -190,6 +196,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func toggle() {
         if blocker.isActive {
             deactivate()
+        } else if pausedForLowBattery {
+            resumeAfterLowBattery(manual: true)
         } else {
             activate(duration: nil)
         }
@@ -220,6 +228,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func clearSession() {
+        pausedForLowBattery = false   // 暂停状态是会话的一部分，会话没了它也不能留着
         let d = UserDefaults.standard
         [Self.sessionActiveKey, Self.sessionDeadlineKey, Self.sessionPresetKey,
          "sessionHeartbeat"].forEach { d.removeObject(forKey: $0) }   // 心跳是旧版本留下的，顺手清掉
@@ -234,6 +243,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return false
         }
         activePreset = d.object(forKey: Self.sessionPresetKey) as? Int
+        if pausedForLowBattery {
+            // 退出前是因为电量低暂停的：先别喵，启动后的电量检查会在电源已接回时自动恢复
+            deadline = saved
+            autoStopNote = "电量低，已暂停喵住 · 插上电源自动恢复"
+            return false
+        }
         activate(duration: saved?.timeIntervalSinceNow, resumed: true)
         // 可能隔了很久才打开应用，自己喵起来得说一声，不然用户会奇怪 Mac 怎么不睡了
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
@@ -246,9 +261,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func activate(duration: TimeInterval?, resumed: Bool = false) {
         if duration == nil { activePreset = nil }
         autoStopNote = nil
+        pausedForLowBattery = false
+        batteryRecheck?.invalidate()
         if !resumed, let status = BatteryMonitor.read(),
            lowBatteryGuard.noteManualStart(status, threshold: lowBatteryThreshold) {
-            Toast.show("电量 \(status.percent)%，这次不会因为电量低自动停止", below: statusItem?.button)
+            Toast.show("电量 \(status.percent)%，这次不会因为电量低暂停", below: statusItem?.button)
         }
         blocker.start(keepDisplayOn: keepDisplayOn)
         // 规则被外部删掉时补装；恢复会话发生在启动时，不在那一刻弹框打扰
@@ -276,15 +293,78 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         island.peek()
     }
 
-    // MARK: 低电量自动停止
+    // MARK: 低电量暂停与自动恢复
 
     private func checkBattery(_ status: PowerStatus) {
-        guard lowBatteryGuard.shouldStop(status, threshold: lowBatteryThreshold,
-                                         sessionActive: blocker.isActive) else { return }
-        deactivate()   // 连同合盖防护一起撤掉：合着盖子的话，Mac 会马上正常休眠
-        autoStopNote = "电量 \(status.percent)%，已自动停止喵住"
-        Toast.show("电量 \(status.percent)%，已自动停止喵住，Mac 可以正常休眠了", below: statusItem?.button)
-        LidBlocker.log("低电量自动停止：\(status.percent)%，阈值 \(lowBatteryThreshold ?? 0)%")
+        let threshold = lowBatteryThreshold
+        if pausedForLowBattery {
+            if LowBatteryGuard.shouldResume(status, threshold: threshold) {
+                resumeAfterLowBattery(manual: false, notice: status.onBattery ? "已恢复喵住" : "电源接上了，已恢复喵住")
+            }
+            return
+        }
+        let now = Date()
+        if lowBatteryGuard.shouldPause(status, threshold: threshold, sessionActive: blocker.isActive, now: now) {
+            pauseForLowBattery(status)
+        } else if let wait = lowBatteryGuard.secondsUntilDecision(now: now) {
+            batteryRecheck?.invalidate()
+            batteryRecheck = Timer.scheduledTimer(withTimeInterval: wait + 1, repeats: false) { [weak self] _ in
+                if let status = BatteryMonitor.read() { self?.checkBattery(status) }
+            }
+        } else {
+            batteryRecheck?.invalidate()
+        }
+    }
+
+    /// 电量低：先暂停喵住，但记住它（包括定时剩余时间），电源回来自动接上
+    private func pauseForLowBattery(_ status: PowerStatus) {
+        blocker.stop()
+        restoreLidSleepIfNeeded()   // 连同合盖防护一起撤掉：合着盖子的话，Mac 会马上正常休眠
+        offTimer?.invalidate()
+        offTimer = nil
+        lidWatchdog?.invalidate()
+        lidWatchdog = nil
+        pausedForLowBattery = true   // 会话存档和 deadline 都留着
+        autoStopNote = "电量 \(status.percent)%，已暂停喵住 · 插上电源自动恢复"
+        playSound(awake: false)
+        updateIcon()
+        island.peek()
+        Toast.show("电量 \(status.percent)%，先暂停喵住；插上电源会自动恢复", below: statusItem?.button)
+        LidBlocker.log("低电量暂停：\(status.percent)%，阈值 \(lowBatteryThreshold ?? 0)%")
+    }
+
+    /// - Parameters:
+    ///   - manual: 用户自己点的恢复算手动开启——电量还低也不会再被暂停
+    ///   - notice: 自动恢复时给用户的提示
+    private func resumeAfterLowBattery(manual: Bool, notice: String = "已恢复喵住") {
+        pausedForLowBattery = false
+        // 判定从头来过：不然刚恢复就拔电源、中间没收到过接电通知的话，就再也不会暂停
+        lowBatteryGuard = LowBatteryGuard()
+        if let d = deadline, d <= Date() {
+            // 暂停期间定时已经到点：该结束就结束，不再喵起来
+            deadline = nil
+            activePreset = nil
+            autoStopNote = nil
+            clearSession()
+            updateIcon()
+            LidBlocker.log("低电量暂停期间定时已到点，不再恢复")
+            return
+        }
+        activate(duration: deadline?.timeIntervalSinceNow, resumed: !manual)
+        if !manual {
+            Toast.show(notice, below: statusItem?.button)
+            LidBlocker.log("低电量暂停后自动恢复：\(notice)")
+        }
+    }
+
+    @objc private func resumeFromMenu() { resumeAfterLowBattery(manual: true) }
+
+    @objc private func cancelAutoResume() {
+        deadline = nil
+        activePreset = nil
+        autoStopNote = nil
+        clearSession()
+        updateIcon()
     }
 
     @objc private func setLowBatteryThreshold(_ sender: NSMenuItem) {
@@ -357,6 +437,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // ── 主操作 ──
         if blocker.isActive {
             menu.addItem(makeItem("放猫猫去睡", #selector(menuDeactivate), symbol: "moon.zzz.fill"))
+        } else if pausedForLowBattery {
+            menu.addItem(makeItem("立即恢复喵住", #selector(resumeFromMenu), symbol: "cup.and.saucer.fill"))
+            menu.addItem(makeItem("取消自动恢复", #selector(cancelAutoResume), symbol: "xmark.circle"))
         } else {
             menu.addItem(makeItem("立即喵住", #selector(menuActivateForever), symbol: "cup.and.saucer.fill"))
         }
@@ -402,8 +485,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let lowItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         lowItem.image = symbol("battery.25")
         if BatteryMonitor.read() != nil {
-            lowItem.title = lowBatteryThreshold.map { "低电量自动停止（\($0)%）" } ?? "低电量自动停止（已关闭）"
-            lowItem.toolTip = "只在用电池时生效，插着电源不会停"
+            lowItem.title = lowBatteryThreshold.map { "低电量自动暂停（\($0)%）" } ?? "低电量自动暂停（已关闭）"
+            lowItem.toolTip = "只在用电池时生效；插上电源后会自动恢复喵住"
             let thresholds = NSMenu()
             for (label, value) in [("关闭", 0), ("低于 10%", 10), ("低于 20%", 20), ("低于 30%", 30)] {
                 let item = makeItem(label, #selector(setLowBatteryThreshold(_:)))
@@ -414,7 +497,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(lowItem)
             menu.setSubmenu(thresholds, for: lowItem)
         } else {
-            lowItem.title = "低电量自动停止（这台 Mac 没有电池）"
+            lowItem.title = "低电量自动暂停（这台 Mac 没有电池）"
             lowItem.isEnabled = false
             menu.addItem(lowItem)
         }
