@@ -4,10 +4,10 @@ A cat in your menu bar that keeps your Mac awake — including with the lid clos
 
 菜单栏里的一只猫猫，喵住你的 Mac 不让它休眠，连合盖都能挡住。
 
-| 状态 | 图标 | 含义 |
+| 状态 | 菜单栏图标 | 含义 |
 |---|---|---|
-| 喵住中 | 😼 睁眼猫 | Mac 不休眠 |
-| 打盹中 | 🐱💤 闭眼猫 + Zz | 允许正常休眠 |
+| 喵住中 | 睁眼小黑猫，右上角冒 ！！ | Mac 不休眠 |
+| 打盹中 | 闭眼小黑猫，右上角飘 Zz | 允许正常休眠 |
 
 ## 功能
 
@@ -28,18 +28,91 @@ A cat in your menu bar that keeps your Mac awake — including with the lid clos
 
 ## 安装
 
+需要 **macOS 13 Ventura 及以上**，Apple Silicon 和 Intel 都支持。三种方式任选一种。
+
+### 方式一：Homebrew（推荐）
+
 ```sh
 brew install suink/tap/sleepcat
 ```
 
-一行就行，不用先 tap，也不用 `brew trust`。升级用 `brew upgrade suink/tap/sleepcat`；想让普通的 `brew upgrade` 也顺带升级它，就运行一次 `brew trust suink/tap`。
+一行就行，不用先 `brew tap`，也不用 `brew trust`，装完会自动去掉系统的隔离标记，第一次打开不会被拦。装好后在「应用程序」里打开 SleepCat，菜单栏会出现一只小黑猫。
 
-或者从源码构建（需要 Xcode Command Line Tools）：
+- 升级：`brew upgrade suink/tap/sleepcat`
+- 想让平时直接敲 `brew upgrade` 也顺带升级它，运行一次 `brew trust suink/tap`
+
+> 没装过 Homebrew？先到 [brew.sh](https://brew.sh/zh-cn/) 按页面上的一行命令装好。
+
+### 方式二：直接下载
+
+1. 打开 [Releases 页面](https://github.com/SuInk/sleepcat/releases/latest)，下载 `SleepCat-x.y.z.zip`
+2. 双击解压，把 `SleepCat.app` 拖进「应用程序」文件夹
+3. 第一次打开会被系统拦下，提示无法验证开发者。这是因为应用没有经过 Apple 公证（需要付费开发者账号），不是应用有问题。两种办法任选一种放行：
+   - **终端**：运行下面这行，然后正常打开
+
+     ```sh
+     xattr -dr com.apple.quarantine /Applications/SleepCat.app
+     ```
+
+   - **系统设置**：先双击打开一次让它被拦，再去「系统设置 › 隐私与安全性」，拉到下面点「仍要打开」
+
+### 方式三：从源码构建
+
+需要 Xcode Command Line Tools（没有的话运行 `xcode-select --install` 安装）：
 
 ```sh
 git clone https://github.com/SuInk/sleepcat.git
-cd sleepcat && ./build.sh && open SleepCat.app
+cd sleepcat
+./build.sh                          # 构建出 SleepCat.app
+open SleepCat.app                   # 直接运行
+cp -R SleepCat.app /Applications/   # 可选：放进「应用程序」
 ```
+
+跑测试：`./test.sh`
+
+## 开始使用
+
+- **左键**点菜单栏的猫：开始 / 停止喵住
+- **右键**点菜单栏的猫：打开菜单，设置时长、合盖模式、低电量自动停止等
+- **开机自动启动**：「系统设置 › 通用 › 登录项」（新版系统叫「登录项与扩展」）里点「+」，添加 SleepCat。喵住状态会保留，开机后会自动接着喵
+- **调整位置**：按住 ⌘ 拖动菜单栏里的猫
+
+有两个功能第一次用时需要授权，都只要授权一次：
+
+| 功能 | 需要的授权 | 为什么 |
+|---|---|---|
+| 合盖也不休眠 | 输一次管理员密码 | 要写入一条只放行 `pmset disablesleep` 的免密规则，详见下文 |
+| 清洁键盘 | 「辅助功能」权限 | 拦截键盘按键需要这个权限 |
+
+## 更新
+
+- 应用会每天自动检查一次新版本，有更新时在猫猫下方提示；也可以右键菜单里点「检查更新…」
+- 用 Homebrew 装的：`brew upgrade suink/tap/sleepcat`
+- 直接下载的：重新下载新版本，替换「应用程序」里的旧版即可
+
+更新后原来的设置和正在进行的喵住都会保留，授权也不用重新给。
+
+## 卸载
+
+**Homebrew 安装的：**
+
+```sh
+brew uninstall suink/tap/sleepcat          # 只删应用
+brew uninstall --zap suink/tap/sleepcat    # 连同设置、日志和合盖免密规则一起删干净
+```
+
+**直接下载或源码构建的：**
+
+1. 右键菜单里点「退出 SleepCat」，把「应用程序」里的 SleepCat 拖进废纸篓
+2. 如果开过合盖模式，删掉免密规则：`sudo rm /etc/sudoers.d/sleepcat`
+3. 可选：清掉设置和日志
+
+   ```sh
+   defaults delete cn.suink.sleepcat
+   rm -f ~/Library/Logs/SleepCat.log
+   ```
+
+4. 如果授权过「清洁键盘」，可以去「系统设置 › 隐私与安全性 › 辅助功能」里把 SleepCat 移除
 
 ## 合盖模式的权限说明
 
@@ -51,7 +124,7 @@ cd sleepcat && ./build.sh && open SleepCat.app
 <你的用户名> ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 1, /usr/bin/pmset -a disablesleep 0
 ```
 
-写入前用 `visudo -c` 校验语法。之后开关合盖防护全程静默。移除规则：`sudo rm /etc/sudoers.d/sleepcat`，或 `brew uninstall --zap --cask sleepcat`。
+写入前用 `visudo -c` 校验语法。之后开关合盖防护全程静默。移除规则：`sudo rm /etc/sudoers.d/sleepcat`，或 `brew uninstall --zap suink/tap/sleepcat`。
 
 ⚠️ 喵住 + 合盖期间 Mac 仍在运行、会发热耗电，**放进背包前先停止喵住**。停止/退出时自动恢复正常休眠。
 
@@ -59,7 +132,9 @@ cd sleepcat && ./build.sh && open SleepCat.app
 
 ## 系统要求
 
-macOS 13+，Apple Silicon / Intel。
+- macOS 13 Ventura 及以上，Apple Silicon / Intel
+- 合盖渐变模糊需要带铰链角度传感器的 MacBook，没有传感器的机型这一项会显示为不可用
+- 刘海灵动岛在没有刘海的屏幕上会退化成屏幕顶部中央的悬停条
 
 ## License
 
