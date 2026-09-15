@@ -565,7 +565,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recommend.image = symbol("heart")
         let recommendMenu = NSMenu()
         recommendMenu.addItem(makeItem("复制推荐语和链接", #selector(copyRecommendation), symbol: "doc.on.doc"))
-        recommendMenu.addItem(makeItem("复制 Homebrew 安装命令", #selector(copyInstallCommand), symbol: "terminal"))
+        recommendMenu.addItem(makeItem("复制一行安装命令", #selector(copyInstallCommand), symbol: "terminal"))
+        recommendMenu.addItem(makeItem("复制 Homebrew 安装命令", #selector(copyBrewInstallCommand), symbol: "mug"))
         recommendMenu.addItem(.separator())
         recommendMenu.addItem(makeItem("通过其他方式分享…", #selector(shareRecommendation), symbol: "square.and.arrow.up"))
         menu.addItem(recommend)
@@ -738,11 +739,16 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static let recommendationBlurb =
         "推荐一个 Mac 小工具 SleepCat 🐱 菜单栏里的小黑猫，点一下就能让 Mac 不休眠，合上盖子也照样跑，还能临时锁住键盘方便清洁。免费开源"
 
-    /// 发微信 / QQ 用：一段话直接带上链接
-    static var recommendationText: String { "\(recommendationBlurb)：\(homepage.absoluteString)" }
+    /// 发微信 / QQ 用：一段话带上链接和安装命令，对方复制到终端就能装
+    static var recommendationText: String {
+        "\(recommendationBlurb)：\(homepage.absoluteString)\n终端一行安装：\(installCommand)"
+    }
 
-    /// 写全名：Homebrew 会自动 tap，也不再要求先 brew trust；隔离标记由 cask 的 postflight 清掉
-    static let installCommand = "brew install suink/tap/sleepcat"
+    /// 首推的安装方式：不需要先装 Homebrew。脚本同时负责升级
+    static let installCommand = "curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | bash"
+
+    /// 写全名：Homebrew 会自动 tap，也不再要求先 brew trust；隔离标记由 cask 安装后清掉
+    static let brewInstallCommand = "brew install suink/tap/sleepcat"
 
     @objc private func copyRecommendation() {
         copyToPasteboard(Self.recommendationText)
@@ -752,6 +758,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func copyInstallCommand() {
         copyToPasteboard(Self.installCommand)
         Toast.show("已复制安装命令，粘贴到终端就能装", below: statusItem.button)
+    }
+
+    @objc private func copyBrewInstallCommand() {
+        copyToPasteboard(Self.brewInstallCommand)
+        Toast.show("已复制 Homebrew 安装命令", below: statusItem.button)
     }
 
     @objc private func shareRecommendation() {
@@ -823,11 +834,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 alert.messageText = "SleepCat \(latest.version) 可以更新了"
                 if UpdateChecker.installedViaHomebrew {
                     alert.informativeText = "当前是 \(current)。你是用 Homebrew 装的，在终端运行：\n\n\(UpdateChecker.upgradeCommand)"
-                    alert.addButton(withTitle: "复制升级命令")
                 } else {
-                    alert.informativeText = "当前是 \(current)。"
-                    alert.addButton(withTitle: "去下载")
+                    alert.informativeText = "当前是 \(current)。在终端运行下面这行就能升级，设置和授权都会保留：\n\n\(Self.installCommand)"
                 }
+                alert.addButton(withTitle: "复制升级命令")
                 alert.addButton(withTitle: "查看更新内容")
                 alert.addButton(withTitle: "以后再说")
             case .success:
@@ -846,10 +856,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             guard let release else { return }
             switch response {
-            case .alertFirstButtonReturn where UpdateChecker.installedViaHomebrew:
-                self.copyToPasteboard(UpdateChecker.upgradeCommand)
+            case .alertFirstButtonReturn:
+                self.copyToPasteboard(UpdateChecker.installedViaHomebrew ? UpdateChecker.upgradeCommand : Self.installCommand)
                 Toast.show("已复制，粘贴到终端运行就能升级", below: self.statusItem?.button)
-            case .alertFirstButtonReturn, .alertSecondButtonReturn:
+            case .alertSecondButtonReturn:
                 NSWorkspace.shared.open(release.page)
             default:
                 break
@@ -877,17 +887,41 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         activate(duration: TimeInterval(sender.tag * 60))
     }
 
-    @objc private func menuActivateCustom() {
-        NSApp.activate(ignoringOtherApps: true)
-        let picker = DurationPicker(minutes: lastCustomMinutes)
+    static func makeCustomDurationAlert(minutes: Int) -> (NSAlert, DurationPicker) {
+        let picker = DurationPicker(minutes: minutes)
         let alert = NSAlert()
         alert.messageText = "自定义喵住时长"
-        alert.informativeText = "到点后自动放猫猫去睡。"
+        alert.informativeText = "到点后 Mac 会恢复正常休眠。"
         alert.accessoryView = picker.view
         alert.addButton(withTitle: "开始喵住")
         alert.addButton(withTitle: "取消")
+        alert.buttons[1].keyEquivalent = "\u{1b}"   // Esc 取消
         picker.onChange = { [weak alert] total in alert?.buttons.first?.isEnabled = total > 0 }
+        picker.alignLeadingEdge(to: alert)
         alert.window.initialFirstResponder = picker.hoursField
+        return (alert, picker)
+    }
+
+    /// 文档 / 调试用：弹出自定义时长对话框，把窗口画成 PNG 后关掉
+    static func snapshotCustomDurationAlert(toDirectory dir: String, dark: Bool) {
+        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        let (alert, _) = makeCustomDurationAlert(minutes: 90)
+        let timer = Timer(timeInterval: 0.6, repeats: false) { _ in
+            if let view = alert.window.contentView?.superview,
+               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?
+                    .write(to: URL(fileURLWithPath: "\(dir)/duration-alert-\(dark ? "dark" : "light").png"))
+            }
+            NSApp.abortModal()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        _ = alert.runModal()
+    }
+
+    @objc private func menuActivateCustom() {
+        NSApp.activate(ignoringOtherApps: true)
+        let (alert, picker) = Self.makeCustomDurationAlert(minutes: lastCustomMinutes)
         guard alert.runModal() == .alertFirstButtonReturn, picker.totalMinutes > 0 else { return }
         lastCustomMinutes = picker.totalMinutes
         activePreset = picker.totalMinutes
@@ -1199,6 +1233,18 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-menu") {
     DispatchQueue.main.async {
         SleepCatApp.snapshotMenu(toDirectory: dir, dark: false)
         SleepCatApp.snapshotMenu(toDirectory: dir, dark: true)
+        exit(0)
+    }
+    NSApplication.shared.run()
+}
+
+// 调试：./SleepCat --snapshot-duration <目录> 输出自定义时长对话框的截图后退出
+if let i = CommandLine.arguments.firstIndex(of: "--snapshot-duration") {
+    let dir = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "."
+    NSApplication.shared.setActivationPolicy(.accessory)
+    DispatchQueue.main.async {
+        SleepCatApp.snapshotCustomDurationAlert(toDirectory: dir, dark: false)
+        SleepCatApp.snapshotCustomDurationAlert(toDirectory: dir, dark: true)
         exit(0)
     }
     NSApplication.shared.run()

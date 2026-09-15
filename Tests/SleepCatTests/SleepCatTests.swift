@@ -159,6 +159,13 @@ import AppKit
         #expect(DurationPicker.endTimeText(minutes: 72 * 60, from: at(10, 0), calendar: cal) == "9月16日 10:00")
     }
 
+    @Test func summarySaysWhenTheCatGoesToSleep() {
+        // 时长已经在输入框里了，下面那行只说几点去睡
+        #expect(DurationPicker.summaryText(minutes: 90, from: at(14, 0), calendar: cal) == "今天 15:30 放猫猫去睡")
+        #expect(DurationPicker.summaryText(minutes: 480, from: at(20, 0), calendar: cal) == "明天 04:00 放猫猫去睡")
+        #expect(DurationPicker.summaryText(minutes: 0, from: at(20, 0), calendar: cal) == "时长不能为 0")
+    }
+
     @Test func cjkSpacing() {
         #expect(DurationPicker.prefixed("至", "22:39") == "至 22:39")
         #expect(DurationPicker.prefixed("至", "明天 04:00") == "至明天 04:00")
@@ -340,22 +347,31 @@ import AppKit
 }
 
 @Suite struct RecommendTests {
-    @Test func copiedTextCarriesTheLink() {
+    @Test func copiedTextCarriesTheLinkAndTheInstallCommand() {
         #expect(SleepCatApp.recommendationText.contains(SleepCatApp.homepage.absoluteString))
+        #expect(SleepCatApp.recommendationText.contains(SleepCatApp.installCommand))
     }
 
-    @Test func installCommandIsOneShortLine() {
-        // 用户嫌命令长：写全名一行装好，tap / trust / 去隔离标记都不用再手敲
-        let cmd = SleepCatApp.installCommand
-        #expect(cmd == "brew install suink/tap/sleepcat")
-        #expect(!cmd.contains("&&"), "不该再拼接多条命令")
+    @Test func installCommandsAreOneLine() {
+        // 一行命令是首推：不需要先装 Homebrew；两条都不能拼接多条命令
+        #expect(SleepCatApp.installCommand.hasPrefix("curl -fsSL "))
+        #expect(SleepCatApp.installCommand.hasSuffix("/install.sh | bash"))
+        #expect(SleepCatApp.brewInstallCommand == "brew install suink/tap/sleepcat")
+        for cmd in [SleepCatApp.installCommand, SleepCatApp.brewInstallCommand] {
+            #expect(!cmd.contains("&&"), "不该再拼接多条命令")
+        }
     }
 
-    @Test func installCommandMatchesTheReadme() throws {
+    @Test func installCommandsMatchTheReadme() throws {
         // 推荐出去的命令要和 README 写的一模一样，改一边忘了另一边就会装不上
         let readme = try String(contentsOfFile: #filePath
             .replacingOccurrences(of: "Tests/SleepCatTests/SleepCatTests.swift", with: "README.md"), encoding: .utf8)
         #expect(readme.contains(SleepCatApp.installCommand))
+        #expect(readme.contains(SleepCatApp.brewInstallCommand))
+        // README 里一行命令要排在 Homebrew 前面
+        let script = try #require(readme.range(of: SleepCatApp.installCommand))
+        let brew = try #require(readme.range(of: SleepCatApp.brewInstallCommand))
+        #expect(script.lowerBound < brew.lowerBound)
     }
 }
 

@@ -19,6 +19,14 @@
   <img src="docs/images/menubar.png" width="648" alt="菜单栏图标：睁眼带！！是喵住中，Mac 不休眠；闭眼带 Zz 是打盹中，Mac 正常休眠；深色菜单栏下自动变白">
 </p>
 
+**一行命令安装**（打开「终端」粘贴运行，不需要 Homebrew）：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | bash
+```
+
+其他安装方式（Homebrew、直接下载、源码构建）见[安装](#安装)。
+
 ## 功能
 
 <p align="center">
@@ -51,28 +59,15 @@
 
 需要 **macOS 13 Ventura 及以上**，Apple Silicon 和 Intel 都支持。下面几种方式任选一种。
 
-### 方式一：Homebrew（推荐）
+### 方式一：一行命令安装（推荐）
 
-```sh
-brew install suink/tap/sleepcat
-```
-
-一行就行，不用先 `brew tap`，也不用 `brew trust`，装完会自动去掉系统的隔离标记，第一次打开不会被拦。装好后在「应用程序」里打开 SleepCat，菜单栏会出现一只小黑猫。
-
-- 升级：`brew upgrade suink/tap/sleepcat`
-- 想让平时直接敲 `brew upgrade` 也顺带升级它，运行一次 `brew trust suink/tap`
-
-> 没装过 Homebrew？先到 [brew.sh](https://brew.sh/zh-cn/) 按页面上的一行命令装好。
-
-### 方式二：一行命令安装（不需要 Homebrew）
-
-打开「终端」，粘贴运行：
+不需要 Homebrew，打开「终端」粘贴运行：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | bash
 ```
 
-脚本会自动下载最新版、核对校验值、放进「应用程序」并打开，第一次打开也不会被系统拦下。脚本内容就是仓库里的 [install.sh](install.sh)，可以先看一眼再运行。
+脚本会自动下载最新版、核对校验值、放进「应用程序」并打开，第一次打开也不会被系统拦下。以后升级也是再运行一次这行，设置和授权都会保留。脚本内容就是仓库里的 [install.sh](install.sh)，可以先看一眼再运行。
 
 需要的话可以加参数（写在 `bash` 前面）：
 
@@ -84,6 +79,17 @@ curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | SL
 ```
 
 > 如果之前是用 Homebrew 装的，脚本会提示你改用 `brew upgrade`，不会直接覆盖。
+
+### 方式二：Homebrew
+
+```sh
+brew install suink/tap/sleepcat
+```
+
+一行就行，不用先 `brew tap`，也不用 `brew trust`，装完会自动去掉系统的隔离标记，第一次打开不会被拦。装好后在「应用程序」里打开 SleepCat，菜单栏会出现一只小黑猫。
+
+- 升级：`brew upgrade suink/tap/sleepcat`
+- 想让平时直接敲 `brew upgrade` 也顺带升级它，运行一次 `brew trust suink/tap`
 
 ### 方式三：直接下载
 
@@ -112,6 +118,8 @@ cp -R SleepCat.app /Applications/   # 可选：放进「应用程序」
 
 跑测试：`./test.sh`
 
+参与开发前运行一次 `git config core.hooksPath .githooks`：提交时自动去掉 AI 工具加的 `Co-Authored-By` 署名
+
 重新生成 README 配图：`./docs/make-images.sh`（需要 Google Chrome）
 
 ## 开始使用
@@ -131,8 +139,8 @@ cp -R SleepCat.app /Applications/   # 可选：放进「应用程序」
 ## 更新
 
 - 应用会每天自动检查一次新版本，有更新时在猫猫下方提示；也可以右键菜单里点「检查更新…」
+- 用一行命令装的：再运行一次同样的命令（应用弹出的更新提示里也能一键复制）
 - 用 Homebrew 装的：`brew upgrade suink/tap/sleepcat`
-- 用一行命令装的：再运行一次同样的命令
 - 直接下载的：重新下载新版本，替换「应用程序」里的旧版即可
 
 更新后原来的设置和正在进行的喵住都会保留，授权也不用重新给。

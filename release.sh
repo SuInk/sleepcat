@@ -4,7 +4,8 @@
 #
 # 可选环境变量：
 #   TAP_DIR         homebrew-tap 仓库位置（默认 ~/project/homebrew-tap，不存在就临时克隆）
-#   NOTES           更新说明文件；不给就让 GitHub 自动生成（没有 PR 时只有一个对比链接）
+#   NOTES           更新说明文件，只写这一版的改动；开头会自动加上统一的「安装 / 升级」段落
+#                   不给就让 GitHub 自动生成改动部分（没有 PR 时只有一个对比链接）
 #   COMMIT_TRAILER  追加到发版提交信息末尾，比如 Co-Authored-By / Signed-off-by
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -47,19 +48,34 @@ ditto -c -k --keepParent SleepCat.app "$ZIP"
 SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
 echo "sha256: $SHA"
 
-# 3. 提交版本号、创建 GitHub Release
+# 3. 提交版本号、创建 GitHub Release（一行命令安装排第一：不需要先装 Homebrew）
 git commit -qam "$(commit_message "Release $VERSION")"
 git push -q
+BODY=$(mktemp)
+cat > "$BODY" <<'MD'
+## 安装 / 升级
+
+打开「终端」粘贴运行，安装和升级都是这一行（不需要 Homebrew）：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | bash
+```
+
+用 Homebrew 的话：`brew install suink/tap/sleepcat`，升级 `brew upgrade suink/tap/sleepcat`。完整安装、更新、卸载说明见 [README](https://github.com/SuInk/sleepcat#安装)。
+
+MD
 if [[ -n "${NOTES:-}" ]]; then
-    gh release create "v$VERSION" "$ZIP" --title "SleepCat $VERSION" --notes-file "$NOTES"
+    cat "$NOTES" >> "$BODY"
+    gh release create "v$VERSION" "$ZIP" --title "SleepCat $VERSION" --notes-file "$BODY"
 else
-    gh release create "v$VERSION" "$ZIP" --title "SleepCat $VERSION" --generate-notes
+    gh release create "v$VERSION" "$ZIP" --title "SleepCat $VERSION" --notes-file "$BODY" --generate-notes
 fi
+rm -f "$BODY"
 
 # 4. 更新 Cask 并推送 tap（先拉再改：改完再拉会因为有未提交改动被 git 拒绝）
 git -C "$TAP_DIR" pull -q --rebase
 sed -E -i '' "s|^(  version \").*(\")$|\1$VERSION\2|; s|^(  sha256 \").*(\")$|\1$SHA\2|" "$CASK"
-git -C "$TAP_DIR" commit -qam "$(commit_message "sleepcat $VERSION")"
+git -C "$TAP_DIR" -c core.hooksPath="$PWD/.githooks" commit -qam "$(commit_message "sleepcat $VERSION")"
 git -C "$TAP_DIR" push -q
 
 echo "✅ SleepCat $VERSION 发布完成"
