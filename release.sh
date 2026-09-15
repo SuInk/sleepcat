@@ -3,7 +3,7 @@
 # 测试 → 构建 → 打包 → GitHub Release → 更新 homebrew-tap 的 Cask 并推送
 #
 # 可选环境变量：
-#   TAP_DIR         homebrew-tap 仓库位置（默认 ~/project/homebrew-tap）
+#   TAP_DIR         homebrew-tap 仓库位置（默认 ~/project/homebrew-tap，不存在就临时克隆）
 #   NOTES           更新说明文件；不给就让 GitHub 自动生成（没有 PR 时只有一个对比链接）
 #   COMMIT_TRAILER  追加到发版提交信息末尾，比如 Co-Authored-By / Signed-off-by
 set -euo pipefail
@@ -11,6 +11,13 @@ cd "$(dirname "$0")"
 
 VERSION=${1:?用法: ./release.sh <版本号，如 1.1.0>}
 TAP_DIR=${TAP_DIR:-$HOME/project/homebrew-tap}
+if [[ ! -d "$TAP_DIR/.git" ]]; then
+    # 本地没有 tap 仓库就临时克隆一份，发完删掉：不用为了发版在别处常驻一个副本
+    TAP_DIR="$(mktemp -d)/homebrew-tap"
+    trap 'rm -rf "$(dirname "$TAP_DIR")"' EXIT
+    echo "本地没有 homebrew-tap，临时克隆到 $TAP_DIR"
+    gh repo clone SuInk/homebrew-tap "$TAP_DIR" -- -q
+fi
 CASK="$TAP_DIR/Casks/sleepcat.rb"
 ZIP="SleepCat-$VERSION.zip"
 
