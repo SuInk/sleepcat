@@ -391,6 +391,27 @@ import AppKit
     }
 }
 
+@Suite struct InstallScriptTests {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+    @Test func scriptParsesUnderSystemBash() throws {
+        // 用户是 curl | bash，macOS 自带的是 bash 3.2，语法错一个字符就整个装不上
+        let bash = Process()
+        bash.executableURL = URL(fileURLWithPath: "/bin/bash")
+        bash.arguments = ["-n", root.appendingPathComponent("install.sh").path]
+        try bash.run()
+        bash.waitUntilExit()
+        #expect(bash.terminationStatus == 0)
+    }
+
+    @Test func readmeCommandPointsAtTheScriptInThisRepo() throws {
+        let readme = try String(contentsOf: root.appendingPathComponent("README.md"), encoding: .utf8)
+        #expect(readme.contains("curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | bash"))
+        #expect(FileManager.default.isExecutableFile(atPath: root.appendingPathComponent("install.sh").path))
+    }
+}
+
 @Suite struct LegacyDefaultsMigrationTests {
     @Test func carriesSettingsOverWithoutClobberingOrRepeating() throws {
         let legacy = "test.sleepcat.legacy.\(UUID().uuidString)"
