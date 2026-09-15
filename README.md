@@ -28,7 +28,7 @@ A cat in your menu bar that keeps your Mac awake — including with the lid clos
 
 ## 安装
 
-需要 **macOS 13 Ventura 及以上**，Apple Silicon 和 Intel 都支持。三种方式任选一种。
+需要 **macOS 13 Ventura 及以上**，Apple Silicon 和 Intel 都支持。下面几种方式任选一种。
 
 ### 方式一：Homebrew（推荐）
 
@@ -43,7 +43,28 @@ brew install suink/tap/sleepcat
 
 > 没装过 Homebrew？先到 [brew.sh](https://brew.sh/zh-cn/) 按页面上的一行命令装好。
 
-### 方式二：直接下载
+### 方式二：一行命令安装（不需要 Homebrew）
+
+打开「终端」，粘贴运行：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | bash
+```
+
+脚本会自动下载最新版、核对校验值、放进「应用程序」并打开，第一次打开也不会被系统拦下。脚本内容就是仓库里的 [install.sh](install.sh)，可以先看一眼再运行。
+
+需要的话可以加参数（写在 `bash` 前面）：
+
+```sh
+# 装指定版本
+curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | SLEEPCAT_VERSION=1.1.0 bash
+# 装到自己的「应用程序」目录（没有 /Applications 写入权限时用）
+curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | SLEEPCAT_APP_DIR=~/Applications bash
+```
+
+> 如果之前是用 Homebrew 装的，脚本会提示你改用 `brew upgrade`，不会直接覆盖。
+
+### 方式三：直接下载
 
 1. 打开 [Releases 页面](https://github.com/SuInk/sleepcat/releases/latest)，下载 `SleepCat-x.y.z.zip`
 2. 双击解压，把 `SleepCat.app` 拖进「应用程序」文件夹
@@ -56,7 +77,7 @@ brew install suink/tap/sleepcat
 
    - **系统设置**：先双击打开一次让它被拦，再去「系统设置 › 隐私与安全性」，拉到下面点「仍要打开」
 
-### 方式三：从源码构建
+### 方式四：从源码构建
 
 需要 Xcode Command Line Tools（没有的话运行 `xcode-select --install` 安装）：
 
@@ -88,6 +109,7 @@ cp -R SleepCat.app /Applications/   # 可选：放进「应用程序」
 
 - 应用会每天自动检查一次新版本，有更新时在猫猫下方提示；也可以右键菜单里点「检查更新…」
 - 用 Homebrew 装的：`brew upgrade suink/tap/sleepcat`
+- 用一行命令装的：再运行一次同样的命令
 - 直接下载的：重新下载新版本，替换「应用程序」里的旧版即可
 
 更新后原来的设置和正在进行的喵住都会保留，授权也不用重新给。
@@ -101,7 +123,7 @@ brew uninstall suink/tap/sleepcat          # 只删应用
 brew uninstall --zap suink/tap/sleepcat    # 连同设置、日志和合盖免密规则一起删干净
 ```
 
-**直接下载或源码构建的：**
+**一行命令安装、直接下载或源码构建的：**
 
 1. 右键菜单里点「退出 SleepCat」，把「应用程序」里的 SleepCat 拖进废纸篓
 2. 如果开过合盖模式，删掉免密规则：`sudo rm /etc/sudoers.d/sleepcat`
