@@ -1,15 +1,32 @@
-# SleepCat 🐱
+<p align="center">
+  <img src="docs/images/icon.png" width="128" alt="SleepCat 应用图标">
+</p>
 
-A cat in your menu bar that keeps your Mac awake — including with the lid closed.
+<h1 align="center">SleepCat</h1>
 
-菜单栏里的一只猫猫，喵住你的 Mac 不让它休眠，连合盖都能挡住。
+<p align="center">
+  菜单栏里的一只猫猫，喵住你的 Mac 不让它休眠，连合盖都能挡住。<br>
+  A cat in your menu bar that keeps your Mac awake — including with the lid closed.
+</p>
 
-| 状态 | 菜单栏图标 | 含义 |
-|---|---|---|
-| 喵住中 | 睁眼小黑猫，右上角冒 ！！ | Mac 不休眠 |
-| 打盹中 | 闭眼小黑猫，右上角飘 Zz | 允许正常休眠 |
+<p align="center">
+  <a href="https://github.com/SuInk/sleepcat/releases/latest"><img src="https://img.shields.io/github/v/release/SuInk/sleepcat?label=%E6%9C%80%E6%96%B0%E7%89%88" alt="最新版本"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13+">
+  <img src="https://img.shields.io/github/license/SuInk/sleepcat" alt="MIT License">
+</p>
+
+<p align="center">
+  <img src="docs/images/menubar.png" width="648" alt="菜单栏图标：睁眼带！！是喵住中，Mac 不休眠；闭眼带 Zz 是打盹中，Mac 正常休眠；深色菜单栏下自动变白">
+</p>
 
 ## 功能
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/menu-dark.png">
+    <img src="docs/images/menu-light.png" width="344" alt="SleepCat 右键菜单：喵住时长、喵住设置、效果与提示、清洁键盘、推荐给朋友、检查更新">
+  </picture>
+</p>
 
 - **左键点猫猫**：一键开关防休眠（IOKit 电源断言，和 `caffeinate` 同机制）
 - **右键菜单**：
@@ -23,6 +40,10 @@ A cat in your menu bar that keeps your Mac awake — including with the lid clos
   - 音效：喵（代码合成）/ 呼噜（默认关闭）
 - 🏝️ **Duo 岛**：把 MacBook 刘海当灵动岛用（iPhone Duo 风格）——平时隐身，鼠标悬停到刘海或喵住状态变化时流畅展开成黑色胶囊，显示猫猫状态和剩余时间，点按直接切换；菜单可关
 - 🌫️ **Duo 合盖模糊**：读取 MacBook 内置的铰链角度传感器（HID Sensor 0x20/0x8A），合盖过程中屏幕随角度实时渐变模糊 + 暗化（100° 起雾、40° 拉满），复刻 iPhone Duo 折叠时的液态玻璃效果；重新打开反向消散。盖子停在半路、合到底都保持模糊；只有屏幕正被远程控制 / 屏幕共享 / 录屏持续监看时才自动让开，不会挡住对方看到的画面。只画在内建屏幕上。调试：`SleepCat --lid-angle` 打印实时角度
+<p align="center">
+  <img src="docs/images/features.png" width="888" alt="左：刘海灵动岛显示喵住中、还剩 1 小时 59 分；右：清洁键盘时的「键盘已禁用」面板">
+</p>
+
 - 模板图标，自动适配深浅色菜单栏；按住 ⌘ 拖动可调整猫猫在菜单栏里的位置（位置会记住）
 - 喵住会一直保留：退出应用、更新、崩溃、重启 Mac 之后再打开，会接着喵（定时已经到点的除外）；只有你亲手「放猫猫去睡」才算结束。应用关着的时候不管休眠，Mac 照常睡
 
@@ -91,6 +112,8 @@ cp -R SleepCat.app /Applications/   # 可选：放进「应用程序」
 
 跑测试：`./test.sh`
 
+重新生成 README 配图：`./docs/make-images.sh`（需要 Google Chrome）
+
 ## 开始使用
 
 - **左键**点菜单栏的猫：开始 / 停止喵住
@@ -113,6 +136,21 @@ cp -R SleepCat.app /Applications/   # 可选：放进「应用程序」
 - 直接下载的：重新下载新版本，替换「应用程序」里的旧版即可
 
 更新后原来的设置和正在进行的喵住都会保留，授权也不用重新给。
+
+### 常见问题
+
+**`brew install` 报错 `It seems the App source '/Applications/SleepCat.app' is not there`**
+
+之前用 Homebrew 装过，后来直接把应用拖进了废纸篓，Homebrew 还以为装着旧版，升级时找不到旧应用就停下了。先清掉旧记录再装：
+
+```sh
+brew uninstall --cask --force suink/tap/sleepcat
+brew install suink/tap/sleepcat
+```
+
+**低电量暂停时没收到通知**
+
+去「系统设置 › 通知 › SleepCat」打开「允许通知」。菜单「低电量自动暂停」里也有「打开通知提醒…」可以直接跳过去（只在通知被关掉时出现）。
 
 ## 卸载
 

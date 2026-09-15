@@ -603,6 +603,41 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         print("菜单尺寸 \(Int(menu.size.width))×\(Int(menu.size.height))，最宽图标 \(Int(widest))pt")
     }
 
+    /// 文档用：真的弹出菜单，把菜单窗口自己画成 PNG（画自己的窗口不需要屏幕录制权限）。
+    /// 状态伪造成「喵住 2 小时」，只在这个进程里持有电源断言，不写会话，退出即释放
+    static func snapshotMenu(toDirectory dir: String, dark: Bool) {
+        let app = SleepCatApp()
+        app.duoBlur = DuoBlur(sensor: LidAngleSensor())
+        app.blocker.start(keepDisplayOn: false)
+        app.deadline = Date().addingTimeInterval(2 * 3600 - 20)
+        app.activePreset = 120
+        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        let menu = app.buildMenu()
+        var tries = 0
+        let timer = Timer(timeInterval: 0.3, repeats: true) { timer in
+            tries += 1
+            // 有高亮行就再等等：截出来会像被人点了一样
+            if menu.highlightedItem != nil, tries < 30 { return }
+            timer.invalidate()
+            for window in NSApp.windows where window.isVisible {
+                guard let view = window.contentView?.superview ?? window.contentView,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                let name = "menu-\(dark ? "dark" : "light").png"
+                try? rep.representation(using: .png, properties: [:])?
+                    .write(to: URL(fileURLWithPath: "\(dir)/\(name)"))
+            }
+            if menu.highlightedItem != nil { print("⚠️ \(dark ? "深色" : "浅色")菜单截图带着高亮：\(menu.highlightedItem!.title)") }
+            menu.cancelTracking()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        // 弹在鼠标的另一半屏幕，不然鼠标下面那一行会被高亮
+        let screen = NSScreen.main?.visibleFrame ?? .zero
+        let x = NSEvent.mouseLocation.x > screen.midX ? screen.minX + 40 : screen.maxX - 320
+        menu.popUp(positioning: nil, at: NSPoint(x: x, y: screen.maxY - 10), in: nil)
+        app.blocker.stop()
+    }
+
     /// 每个可点条目都配一个符号图标，菜单左缘才是一条直线（缺图标的行文字会往左串）
     private func makeItem(_ title: String, _ action: Selector,
                           symbol name: String? = nil, key: String = "") -> NSMenuItem {
@@ -1151,6 +1186,18 @@ if CommandLine.arguments.contains("--test-notification") {
     }
     // 不设超时：授权框还没点就退出，系统会把这次请求记成「拒绝」
     RunLoop.main.run()
+}
+
+// 文档用：./SleepCat --snapshot-menu <目录> 输出浅色 / 深色菜单截图后退出
+if let i = CommandLine.arguments.firstIndex(of: "--snapshot-menu") {
+    let dir = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "."
+    NSApplication.shared.setActivationPolicy(.accessory)
+    DispatchQueue.main.async {
+        SleepCatApp.snapshotMenu(toDirectory: dir, dark: false)
+        SleepCatApp.snapshotMenu(toDirectory: dir, dark: true)
+        exit(0)
+    }
+    NSApplication.shared.run()
 }
 
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出
