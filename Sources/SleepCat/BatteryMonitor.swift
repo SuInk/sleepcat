@@ -44,31 +44,61 @@ final class BatteryMonitor {
     }
 }
 
-/// 低电量自动停止的判定。
+/// 低电量时暂停喵住、电源回来自动恢复的判定。
 ///
-/// - 只在用电池时生效；插着电源就是在充电，电量再低也不停
-/// - 电量已经低于阈值时用户**手动**开启喵住，说明是有意的，这一轮不再把它停掉；
+/// - 只在用电池时生效；插着电源就是在充电，电量再低也不暂停
+/// - 要**连续**用电池且电量不高于阈值满 `grace` 秒才暂停：负载高、充电器一时带不动时，
+///   系统会短暂报告成「用电池」几秒钟，不能因此就把喵住停掉（合着盖子的话会直接睡过去）
+/// - 电量已经低于阈值时用户**手动**开启喵住，说明是有意的，这一轮不再暂停；
 ///   等插上电源或电量回升到阈值以上，才重新生效
-/// - 启动时自动恢复的会话不算手动，照常判定
+/// - 暂停后满足 `shouldResume` 就自动恢复
 struct LowBatteryGuard {
-    private(set) var armed = true
+    static let grace: TimeInterval = 60
+    /// 在电池上靠电量回升来恢复时要多出的余量，免得电量在阈值上下跳动时反复暂停、恢复
+    static let resumeMargin = 5
 
-    /// 用户手动开启喵住时调用。返回 true 表示这次覆盖了自动停止，界面上应该说明一下
+    private(set) var armed = true
+    private var lowSince: Date?
+
+    /// 用户手动开启喵住时调用。返回 true 表示这次覆盖了自动暂停，界面上应该说明一下
     mutating func noteManualStart(_ status: PowerStatus, threshold: Int?) -> Bool {
         guard let threshold, status.onBattery, status.percent <= threshold else { return false }
         armed = false
+        lowSince = nil
         return true
     }
 
-    /// 返回 true 表示现在应该自动停止喵住
-    mutating func shouldStop(_ status: PowerStatus, threshold: Int?, sessionActive: Bool) -> Bool {
-        guard let threshold else { return false }
-        if !status.onBattery || status.percent > threshold {
-            armed = true
+    /// 返回 true 表示现在应该暂停喵住
+    mutating func shouldPause(_ status: PowerStatus, threshold: Int?, sessionActive: Bool, now: Date) -> Bool {
+        guard let threshold else {
+            lowSince = nil
             return false
         }
-        guard armed, sessionActive else { return false }
+        if !status.onBattery || status.percent > threshold {
+            armed = true
+            lowSince = nil
+            return false
+        }
+        guard armed, sessionActive else {
+            lowSince = nil
+            return false
+        }
+        let since = lowSince ?? now
+        lowSince = since
+        guard now.timeIntervalSince(since) >= Self.grace else { return false }
         armed = false
+        lowSince = nil
         return true
+    }
+
+    /// 正在确认期内时，还要等多久才该再判一次（电量没变化系统不会再通知，得自己约时间复查）
+    func secondsUntilDecision(now: Date) -> TimeInterval? {
+        lowSince.map { max(0, Self.grace - now.timeIntervalSince($0)) }
+    }
+
+    /// 因低电量暂停的喵住，现在能不能恢复：插上电源、关掉了这个功能，或电量明显高于阈值
+    static func shouldResume(_ status: PowerStatus, threshold: Int?) -> Bool {
+        guard let threshold else { return true }
+        return !status.onBattery || status.percent >= threshold + resumeMargin
     }
 }

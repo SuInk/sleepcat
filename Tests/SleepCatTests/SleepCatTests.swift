@@ -253,65 +253,82 @@ import AppKit
 }
 
 @Suite struct LowBatteryGuardTests {
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    func t(_ s: Double) -> Date { t0.addingTimeInterval(s) }
     func battery(_ p: Int) -> PowerStatus { PowerStatus(onBattery: true, percent: p) }
     func plugged(_ p: Int) -> PowerStatus { PowerStatus(onBattery: false, percent: p) }
 
-    @Test func stopsOnceWhenDrainingPastTheThreshold() {
+    @Test func pausesOnlyAfterStayingLowOnBatteryForTheGracePeriod() {
         var g = LowBatteryGuard()
-        let r1 = g.shouldStop(battery(40), threshold: 20, sessionActive: true)
-        #expect(!r1)
-        let r2 = g.shouldStop(battery(21), threshold: 20, sessionActive: true)
-        #expect(!r2)
-        let r3 = g.shouldStop(battery(20), threshold: 20, sessionActive: true)
-        #expect(r3, "到阈值就停")
-        let r4 = g.shouldStop(battery(19), threshold: 20, sessionActive: true)
-        #expect(!r4, "已经停过，不会反复触发")
+        let early = g.shouldPause(battery(20), threshold: 20, sessionActive: true, now: t(0))
+        #expect(!early, "刚到阈值不立刻停，要先确认")
+        #expect(g.secondsUntilDecision(now: t(10)) == LowBatteryGuard.grace - 10, "要约好复查时间")
+        let late = g.shouldPause(battery(19), threshold: 20, sessionActive: true, now: t(LowBatteryGuard.grace))
+        #expect(late, "持续低电量满确认期就暂停")
+        let again = g.shouldPause(battery(18), threshold: 20, sessionActive: true, now: t(200))
+        #expect(!again, "已经暂停过，不会反复触发")
     }
 
-    @Test func neverStopsWhilePluggedIn() {
+    @Test func briefSwitchToBatteryWhilePluggedInIsIgnored() {
+        // 2026-09-16 00:07:34 真实发生过：电源插着，负载高时系统报告「用电池」4 秒又切回电源
         var g = LowBatteryGuard()
-        let r5 = g.shouldStop(plugged(5), threshold: 20, sessionActive: true)
-        #expect(!r5, "插着电源就是在充电")
+        let a = g.shouldPause(plugged(20), threshold: 20, sessionActive: true, now: t(0))
+        let b = g.shouldPause(battery(20), threshold: 20, sessionActive: true, now: t(1))
+        let c = g.shouldPause(plugged(20), threshold: 20, sessionActive: true, now: t(5))
+        let d = g.shouldPause(plugged(20), threshold: 20, sessionActive: true, now: t(120))
+        #expect(!a && !b && !c && !d)
+        #expect(g.secondsUntilDecision(now: t(5)) == nil, "切回电源后确认期作废")
+    }
+
+    @Test func neverPausesWhilePluggedIn() {
+        var g = LowBatteryGuard()
+        let r = g.shouldPause(plugged(5), threshold: 20, sessionActive: true, now: t(999))
+        #expect(!r, "插着电源就是在充电")
     }
 
     @Test func offMeansOff() {
         var g = LowBatteryGuard()
-        let r6 = g.shouldStop(battery(3), threshold: nil, sessionActive: true)
-        #expect(!r6)
+        let a = g.shouldPause(battery(3), threshold: nil, sessionActive: true, now: t(0))
+        let b = g.shouldPause(battery(3), threshold: nil, sessionActive: true, now: t(999))
+        #expect(!a && !b)
     }
 
     @Test func manualStartBelowThresholdIsRespected() {
-        // 电量 15% 时用户手动开喵住：是有意的，不能一开就被停掉
+        // 电量 15% 时用户手动开喵住：是有意的，不能过一分钟就被暂停
         var g = LowBatteryGuard()
-        let r7 = g.noteManualStart(battery(15), threshold: 20)
-        #expect(r7, "应该提示用户这次不会自动停")
-        let r8 = g.shouldStop(battery(15), threshold: 20, sessionActive: true)
-        #expect(!r8)
-        let r9 = g.shouldStop(battery(8), threshold: 20, sessionActive: true)
-        #expect(!r9)
-    }
-
-    @Test func manualStartAboveThresholdNeedsNoNotice() {
-        var g = LowBatteryGuard()
-        let r10 = g.noteManualStart(battery(60), threshold: 20)
-        #expect(!r10)
-        let r11 = g.noteManualStart(plugged(10), threshold: 20)
-        #expect(!r11)
+        let overridden = g.noteManualStart(battery(15), threshold: 20)
+        #expect(overridden, "应该提示用户这次不会暂停")
+        let a = g.shouldPause(battery(15), threshold: 20, sessionActive: true, now: t(0))
+        let b = g.shouldPause(battery(8), threshold: 20, sessionActive: true, now: t(600))
+        #expect(!a && !b)
     }
 
     @Test func pluggingInReArmsIt() {
         var g = LowBatteryGuard()
         _ = g.noteManualStart(battery(15), threshold: 20)
-        let pluggedIn = g.shouldStop(plugged(15), threshold: 20, sessionActive: true)   // 插上电源
-        #expect(!pluggedIn)
-        let r12 = g.shouldStop(battery(15), threshold: 20, sessionActive: true)
-        #expect(r12, "拔掉后重新生效")
+        _ = g.shouldPause(plugged(15), threshold: 20, sessionActive: true, now: t(0))
+        _ = g.shouldPause(battery(15), threshold: 20, sessionActive: true, now: t(10))
+        let r = g.shouldPause(battery(15), threshold: 20, sessionActive: true, now: t(10 + LowBatteryGuard.grace))
+        #expect(r, "拔掉电源、持续低电量后重新生效")
     }
 
     @Test func doesNothingWhenNotKeepingAwake() {
         var g = LowBatteryGuard()
-        let r13 = g.shouldStop(battery(10), threshold: 20, sessionActive: false)
-        #expect(!r13)
+        _ = g.shouldPause(battery(10), threshold: 20, sessionActive: false, now: t(0))
+        let r = g.shouldPause(battery(10), threshold: 20, sessionActive: false, now: t(999))
+        #expect(!r)
+    }
+
+    @Test func resumesWhenPowerComesBackOrTheFeatureIsOff() {
+        #expect(LowBatteryGuard.shouldResume(plugged(18), threshold: 20), "插上电源就恢复")
+        #expect(LowBatteryGuard.shouldResume(battery(18), threshold: nil), "关掉了低电量暂停就恢复")
+    }
+
+    @Test func doesNotFlapAroundTheThresholdOnBattery() {
+        // 用电池时电量在 20、21 之间跳，不能跟着反复恢复、暂停；要高出余量才算回来了
+        #expect(!LowBatteryGuard.shouldResume(battery(21), threshold: 20))
+        #expect(LowBatteryGuard.shouldResume(battery(20 + LowBatteryGuard.resumeMargin), threshold: 20),
+                "比如把阈值调低到当前电量以下，就该恢复")
     }
 
     @Test func readsThisMacsBatterySanely() {
