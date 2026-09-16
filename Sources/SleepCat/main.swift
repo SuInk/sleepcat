@@ -829,7 +829,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 直接用原图会让每行文字的起点左右浮动，菜单左缘就成锯齿了。
     private static let iconCanvas = NSSize(width: 18, height: 16)
 
-    private static func fitIcon(_ src: NSImage) -> NSImage {
+    static func fitIcon(_ src: NSImage) -> NSImage {
         let out = NSImage(size: iconCanvas, flipped: false) { rect in
             let s = src.size
             guard s.width > 0, s.height > 0 else { return true }
@@ -1505,6 +1505,26 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-align") {
         let rowIcon = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         rowIcon.view = MenuRow(symbol: icon, title: "自绘 刘海灵动岛", isOn: { true }, action: {})
         menu.addItem(rowIcon)
+        // 功耗子菜单：面板内容的左边界要和下面「功耗曲线…」的图标对齐
+        menu.addItem(.separator())
+        let panel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        let history = PowerHistory.preview(hours: 1)
+        panel.view = PowerSummaryView(history: { history },
+                                      flow: { PowerFlow(system: 6.1, adapter: nil, battery: -7.0) })
+        menu.addItem(panel)
+        menu.addItem(.separator())
+        let chart = NSMenuItem(title: "功耗曲线…", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        chart.image = NSImage(systemSymbolName: "chart.xyaxis.line", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular)).map(SleepCatApp.fitIcon)
+        menu.addItem(chart)
+        // 真实的功耗子菜单里没有带勾的行，系统可能不留勾那一列：单独弹一个一模一样的菜单再比一次
+        if CommandLine.arguments.contains("--power-only") {
+            [panel, chart].forEach { menu.removeItem($0) }
+            menu.removeAllItems()
+            menu.addItem(panel)
+            menu.addItem(.separator())
+            menu.addItem(chart)
+        }
         let timer = Timer(timeInterval: 0.6, repeats: false) { _ in
             for window in NSApp.windows where window.isVisible {
                 guard let view = window.contentView?.superview ?? window.contentView,
