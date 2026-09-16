@@ -820,12 +820,13 @@ import AppKit
 
 
 @Suite struct PowerFlowTests {
-    @Test func chargingShowsWhereTheAdapterPowerGoes() {
+    @Test func chargingHeadlinesTheAdapter() {
         // 实测过的一组：适配器 49.1 W，整机 11.6 W，充进电池 37.5 W
         let flow = PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5)
         #expect(flow.state == .charging)
-        #expect(flow.summary == "适配器 49.1 W → 整机 11.6 W + 充电 37.5 W")
-        #expect(flow.shortState == "充电 37.5 W")
+        #expect(flow.headlineText == "适配器 49.1 W", "插电时主读数是适配器进来多少")
+        #expect(flow.detail == "整机 11.6 W · 充电 37.5 W")
+        #expect(flow.shortState == "适配器 · 充电中")
         #expect(flow.isConsistent)
     }
 
@@ -833,15 +834,17 @@ import AppKit
         // 充满后电流在零点几安上下抖，不能说成在充电
         let flow = PowerFlow(system: 11.6, adapter: 11.9, battery: 0.2)
         #expect(flow.state == .pluggedIn)
-        #expect(flow.summary == "适配器 11.9 W → 整机 11.6 W")
-        #expect(flow.shortState == "电源供电")
+        #expect(flow.headlineText == "适配器 11.9 W")
+        #expect(flow.detail == "整机 11.6 W")
+        #expect(flow.shortState == "适配器")
     }
 
-    @Test func onBatteryShowsTheDischarge() {
+    @Test func onBatteryHeadlinesTheDischarge() {
         let flow = PowerFlow(system: 9.7, adapter: nil, battery: -10.2)
         #expect(flow.state == .onBattery)
-        #expect(flow.summary == "电池放电 10.2 W → 整机 9.7 W")
-        #expect(flow.shortState == "用电池")
+        #expect(flow.headlineText == "放电 10.2 W", "用电池时主读数是电池放出多少")
+        #expect(flow.detail == "整机 9.7 W")
+        #expect(flow.shortState == "电池放电")
         #expect(flow.isConsistent, "没插电时没有适配器可对账")
     }
 

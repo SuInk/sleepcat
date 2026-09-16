@@ -157,10 +157,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 var detail = self.deadline.map { "还剩 \(Self.format($0.timeIntervalSinceNow))" } ?? "无限期"
                 if self.lidBlocker.isActive { detail += " · 含合盖" }
                 return .init(active: true, title: "喵住中", detail: detail + " · 点按停止",
-                             watts: flow?.system, powerCaption: flow?.shortState)
+                             watts: flow?.headline.watts, powerCaption: flow?.shortState)
             }
             return .init(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住",
-                         watts: flow?.system, powerCaption: flow?.shortState)
+                         watts: flow?.headline.watts, powerCaption: flow?.shortState)
         }
         island.onToggle = { [weak self] in self?.toggle() }
         if duoEnabled {
@@ -783,7 +783,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.isEnabled = false
             return item
         }
-        item.title = "功耗（\(PowerMeter.wattsText(watts))）"
+        item.title = "功耗（\(PowerMeter.readFlow()?.headlineText ?? "整机 \(PowerMeter.wattsText(watts))")）"
 
         // 概览块自带跨度切换，数据绘制时现取；下面只留一个看大图的入口
         let sub = NSMenu()
@@ -1445,7 +1445,7 @@ if CommandLine.arguments.contains("--power-flow") {
     if let flow = PowerMeter.readFlow() {
         print("整机 \(PowerMeter.wattsText(flow.system))，适配器 \(flow.adapter.map(PowerMeter.wattsText) ?? "未插电")，"
               + "电池 \(flow.battery.map { String(format: "%+.1f W", $0) } ?? "无")")
-        print(flow.summary)
+        print("主读数：\(flow.headlineText)　细节：\(flow.detail)")
         print("自检：\(flow.isConsistent ? "对得上" : "对不上，某个读数不可信")")
     } else {
         print("读不到功耗")

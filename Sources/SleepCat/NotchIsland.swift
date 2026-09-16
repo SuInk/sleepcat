@@ -175,8 +175,8 @@ extension NotchIsland {
         let notch = NSSize(width: 208, height: 37.5)   // 14 寸 MacBook Pro 的刘海
         let size = NSSize(width: 404, height: notch.height + contentHeight)
         let samples: [(String, Status)] = [
-            ("island-active", Status(active: true, title: "喵住中", detail: "还剩 1 小时 59 分 · 点按停止", watts: 11.6, powerCaption: "充电 37.5 W")),
-            ("island-idle", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: 4.3, powerCaption: "用电池")),
+            ("island-active", Status(active: true, title: "喵住中", detail: "还剩 1 小时 59 分 · 点按停止", watts: 49.1, powerCaption: "适配器 · 充电中")),
+            ("island-idle", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: 10.2, powerCaption: "电池放电")),
         ]
         for (name, status) in samples {
             let v = IslandView(frame: NSRect(origin: .zero, size: size))

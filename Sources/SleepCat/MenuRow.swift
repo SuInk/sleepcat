@@ -150,7 +150,7 @@ final class PowerSummaryView: NSView {
         flowProvider = flow
         super.init(frame: .zero)
         // 宽度按最长的统计行估：峰值三位数时也放得下
-        let sample = "近 24 小时　平均 188.8 W · 峰值 188.8 W · 最低 188.8 W"
+        let sample = "整机 · 近 24 小时　平均 188.8 W · 峰值 188.8 W · 最低 188.8 W"
         let statsWidth = ceil(NSAttributedString(string: sample, attributes: [.font: NSFont.systemFont(ofSize: 11)])
             .size().width)
         let width = max(statsWidth, PowerChart.size.width) + Self.leading + Self.trailing
@@ -181,18 +181,21 @@ final class PowerSummaryView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let visible = historyProvider().limited(to: PowerSpan.current)
         var y = bounds.maxY - 22
-        let current = wattsProvider().map { "当前 \(PowerMeter.wattsText($0))" } ?? "当前读不到"
+        // 主读数跟着电源状态走：插电看适配器进来多少，用电池看电池放出多少
+        let flow = flowProvider()
+        let current = flow?.headlineText ?? wattsProvider().map { "整机 \(PowerMeter.wattsText($0))" } ?? "读不到功耗"
         draw(current, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 15, weight: .semibold),
              color: .labelColor)
 
-        // 汇总：电从哪来、到哪去
+        // 细节：整机功耗，充电时带上充进电池的功率
         y -= Self.flowHeight
-        if let flow = flowProvider() {
-            draw(flow.summary, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .labelColor)
+        if let flow {
+            draw(flow.detail, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .labelColor)
         }
 
         y -= Self.statsHeight
-        let stats = PowerMeter.statsText(visible).map { "近 \(PowerHistory.spanText(visible.span))　\($0)" }
+        // 曲线画的是整机功耗，和上面跟着电源状态变的主读数不是一回事，这里标清楚
+        let stats = PowerMeter.statsText(visible).map { "整机 · 近 \(PowerHistory.spanText(visible.span))　\($0)" }
             ?? "还在采样，攒够一分钟就有曲线了"
         draw(stats, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
 

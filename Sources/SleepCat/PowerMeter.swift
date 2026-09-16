@@ -18,14 +18,28 @@ enum PowerMeter {
     }
 
     /// 读此刻的能量流。插电时适配器输入读 SMC 的 PDTR，读不到就用「整机 + 充电」推算
+    ///
+    /// 电池功率不直接用电压 × 电流：Apple Silicon 上电流经常读成 0（几个同类项目都踩过）。
+    /// - 放电：优先 PPBR（电池往外放的功率，实测插电充电时它只有 1～2 W，说明它不管充电），
+    ///   读不到退回电压 × 电流，再不行用整机功耗
+    /// - 充电：用「适配器 − 整机」，读不到适配器时才用电压 × 电流
     static func readFlow() -> PowerFlow? {
         guard let system = read() else { return nil }
-        let battery = BatteryMonitor.batteryWatts()
         let pluggedIn = BatteryMonitor.read().map { !$0.onBattery } ?? true   // 台式机没电池，当作插着电
-        guard pluggedIn else { return PowerFlow(system: system, adapter: nil, battery: battery) }
-        let measured = SMC.shared.readFloat("PDTR").flatMap { $0 > 0.5 && $0 < 500 ? $0 : nil }
-        let adapter = measured ?? system + max(0, battery ?? 0)
-        return PowerFlow(system: system, adapter: adapter, battery: battery)
+        let hasBattery = BatteryMonitor.read() != nil
+        func valid(_ key: String) -> Double? {
+            SMC.shared.readFloat(key).flatMap { $0 > 0.5 && $0 < 500 ? $0 : nil }
+        }
+        guard pluggedIn else {
+            let discharge = valid("PPBR") ?? BatteryMonitor.dischargeWatts() ?? system
+            return PowerFlow(system: system, adapter: nil, battery: -discharge)
+        }
+        if let adapter = valid("PDTR") {
+            return PowerFlow(system: system, adapter: adapter,
+                             battery: hasBattery ? max(0, adapter - system) : nil)
+        }
+        let battery = BatteryMonitor.batteryWatts()
+        return PowerFlow(system: system, adapter: system + max(0, battery ?? 0), battery: battery)
     }
 
     /// 始终带一位小数：整机功耗就在十几二十几瓦这个量级，取整看不出变化
@@ -66,26 +80,32 @@ struct PowerFlow: Equatable {
         return .pluggedIn
     }
 
-    /// 汇总的一行，比如「适配器 49.1 W → 整机 11.6 W + 充电 37.5 W」
-    var summary: String {
-        let w = PowerMeter.wattsText
+    /// 主读数：插电时看适配器进来多少，用电池时看电池放出多少
+    var headline: (label: String, watts: Double) {
         switch state {
-        case .charging:
-            return "适配器 \(w(adapter ?? system)) → 整机 \(w(system)) + 充电 \(w(battery ?? 0))"
-        case .pluggedIn:
-            return "适配器 \(w(adapter ?? system)) → 整机 \(w(system))"
-        case .onBattery:
-            let discharge = max(0, -(battery ?? -system))
-            return "电池放电 \(w(discharge)) → 整机 \(w(system))"
+        case .charging, .pluggedIn: return ("适配器", adapter ?? system)
+        case .onBattery: return ("放电", max(0, -(battery ?? -system)))
         }
     }
 
-    /// 灵动岛那种地方放得下的短说法
+    /// 主读数下面那行细节：整机功耗，充电时再带上充进电池的功率
+    var detail: String {
+        let w = PowerMeter.wattsText
+        switch state {
+        case .charging: return "整机 \(w(system)) · 充电 \(w(battery ?? 0))"
+        case .pluggedIn, .onBattery: return "整机 \(w(system))"
+        }
+    }
+
+    /// 带标签的主读数，比如「适配器 49.1 W」「放电 10.2 W」
+    var headlineText: String { "\(headline.label) \(PowerMeter.wattsText(headline.watts))" }
+
+    /// 灵动岛读数下面的小字
     var shortState: String {
         switch state {
-        case .charging: return "充电 \(PowerMeter.wattsText(battery ?? 0))"
-        case .pluggedIn: return "电源供电"
-        case .onBattery: return "用电池"
+        case .charging: return "适配器 · 充电中"
+        case .pluggedIn: return "适配器"
+        case .onBattery: return "电池放电"
         }
     }
 
