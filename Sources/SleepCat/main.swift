@@ -63,6 +63,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var minuteCount = 0
     private var minuteStart = Date()
     private var retentionTimer: Timer?
+    /// 菜单开着时每秒读一次，顶部状态行、「功耗」菜单项、概览块都用这同一个读数，数字才对得上
+    private var latestFlow: PowerFlow?
+    private weak var powerItem: NSMenuItem?
+    private weak var powerSummary: PowerSummaryView?
     private var offTimer: Timer?
     private var menuRefreshTimer: Timer?
     private var deadline: Date?
@@ -554,6 +558,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func showMenu() {
         Notifier.shared.refreshStatus()
         samplePower()
+        latestFlow = PowerMeter.readFlow()
         let menu = buildMenu()
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
@@ -783,14 +788,17 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.isEnabled = false
             return item
         }
-        item.title = "功耗（\(PowerMeter.readFlow()?.headlineText ?? "整机 \(PowerMeter.wattsText(watts))")）"
+        item.title = "功耗（\(latestFlow?.headlineText ?? "整机 \(PowerMeter.wattsText(watts))")）"
+        powerItem = item
 
         // 概览块自带跨度切换，数据绘制时现取；下面只留一个看大图的入口
         let sub = NSMenu()
         let summary = NSMenuItem(title: "当前 \(PowerMeter.wattsText(watts))", action: nil, keyEquivalent: "")
-        summary.view = PowerSummaryView(history: { [weak self] in self?.powerHistory ?? PowerHistory() },
-                                        watts: { [weak self] in self?.latestWatts },
-                                        flow: { PowerMeter.readFlow() })
+        let summaryView = PowerSummaryView(history: { [weak self] in self?.powerHistory ?? PowerHistory() },
+                                           watts: { [weak self] in self?.latestWatts },
+                                           flow: { [weak self] in self?.latestFlow })
+        summary.view = summaryView
+        powerSummary = summaryView
         sub.addItem(summary)
         sub.addItem(.separator())
         sub.addItem(makeItem("功耗曲线…", #selector(openPowerWindow), symbol: "chart.xyaxis.line"))
@@ -875,7 +883,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             title = "喵住中"
             detail = deadline.map { "还剩 \(Self.format($0.timeIntervalSinceNow))" } ?? "无限期"
             if lidBlocker.isActive { detail += " · 含合盖防护" }
-            if let watts = latestWatts { detail += " · \(PowerMeter.wattsText(watts))" }
+            if let flow = latestFlow { detail += " · \(flow.headlineText)" }
         } else if lidBlocker.isActive {
             title = "打盹中 · 休眠仍被禁用"
             detail = "开关一次「合盖也不休眠」可恢复"
@@ -1111,14 +1119,22 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: NSMenuDelegate —— 菜单打开期间每秒刷新倒计时
 
+    /// 菜单开着就每秒刷新：倒计时、实时功耗都要跟着变。
+    /// 以前只在定时喵住（有倒计时）时才刷，无限期喵住或者打盹时，功耗数字打开菜单后就不动了
     func menuWillOpen(_ menu: NSMenu) {
         menuRefreshTimer?.invalidate()
-        guard blocker.isActive, deadline != nil else { return }
-        menuRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.headerItem?.attributedTitle = self.headerTitle()
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            self?.refreshOpenMenu()
         }
-        RunLoop.current.add(menuRefreshTimer!, forMode: .common)  // 菜单会切到 eventTracking 模式
+        RunLoop.current.add(timer, forMode: .common)  // 菜单会切到 eventTracking 模式，默认模式下定时器不走
+        menuRefreshTimer = timer
+    }
+
+    private func refreshOpenMenu() {
+        latestFlow = PowerMeter.readFlow()
+        headerItem?.attributedTitle = headerTitle()
+        if let flow = latestFlow { powerItem?.title = "功耗（\(flow.headlineText)）" }
+        powerSummary?.needsDisplay = true
     }
 
     func menuDidClose(_ menu: NSMenu) {
