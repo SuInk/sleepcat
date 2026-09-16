@@ -530,6 +530,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateIcon() {
         guard let button = statusItem.button else { return }
         button.image = blocker.isActive ? CatIcon.awake : CatIcon.asleep
+        // 开发版的猫是橙色的，和装好的正式版一眼分开
+        if BuildChannel.isDev { button.contentTintColor = AppIcon.devOrange }
         island.refresh()
         button.toolTip = blocker.isActive
             ? "SleepCat：正在喵住你的 Mac（点击放它去睡）"
@@ -1461,10 +1463,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 // MARK: - 启动
 
-// 构建用：./SleepCat --make-iconset <目录> 导出应用图标的 .iconset 后退出
+// 构建用：./SleepCat --make-iconset <目录> [--dev] 导出应用图标的 .iconset 后退出；--dev 带开发版角标
 if let i = CommandLine.arguments.firstIndex(of: "--make-iconset"), CommandLine.arguments.count > i + 1 {
     do {
-        try AppIcon.writeIconset(to: CommandLine.arguments[i + 1])
+        try AppIcon.writeIconset(to: CommandLine.arguments[i + 1], dev: CommandLine.arguments.contains("--dev"))
         exit(0)
     } catch {
         FileHandle.standardError.write("iconset 生成失败：\(error)\n".data(using: .utf8)!)

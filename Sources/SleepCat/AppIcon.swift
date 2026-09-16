@@ -12,8 +12,11 @@ enum AppIcon {
     static let cream = NSColor(red: 1.00, green: 0.97, blue: 0.90, alpha: 1)
     static let blush = NSColor(red: 0.95, green: 0.62, blue: 0.62, alpha: 1)
 
-    /// 在 1024×1024 坐标系里绘制（原点左下），调用方负责缩放
-    static func draw() {
+    /// 开发版的角标颜色：和菜单栏里开发版猫的颜色一致
+    static let devOrange = NSColor(red: 0.98, green: 0.55, blue: 0.16, alpha: 1)
+
+    /// 在 1024×1024 坐标系里绘制（原点左下），调用方负责缩放。dev 为真时右下角加一个橙色「DEV」角标
+    static func draw(dev: Bool = false) {
         // macOS 图标主体：824 的圆角方块，四周留 100 给投影
         let body = NSRect(x: 100, y: 100, width: 824, height: 824)
         let squircle = NSBezierPath(roundedRect: body, xRadius: 185, yRadius: 185)
@@ -36,6 +39,20 @@ enum AppIcon {
             .draw(in: body, angle: -90)
         drawCat()
         NSGraphicsContext.restoreGraphicsState()
+        if dev { drawDevBadge() }
+    }
+
+    /// 开发版角标：右下角一块橙色胶囊写「DEV」，小尺寸（访达列表、程序坞）里也认得出
+    private static func drawDevBadge() {
+        let badge = NSRect(x: 470, y: 120, width: 430, height: 210)
+        devOrange.setFill()
+        NSBezierPath(roundedRect: badge, xRadius: 105, yRadius: 105).fill()
+        let text = NSAttributedString(string: "DEV", attributes: [
+            .font: NSFont.systemFont(ofSize: 150, weight: .heavy),
+            .foregroundColor: NSColor.white,
+        ])
+        let size = text.size()
+        text.draw(at: NSPoint(x: badge.midX - size.width / 2, y: badge.midY - size.height / 2 + 4))
     }
 
     private static func drawCat() {
@@ -75,7 +92,7 @@ enum AppIcon {
 
     // MARK: - 导出
 
-    static func png(size: Int) -> Data? {
+    static func png(size: Int, dev: Bool = false) -> Data? {
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -88,18 +105,18 @@ enum AppIcon {
         let t = NSAffineTransform()
         t.scale(by: scale)
         t.concat()
-        draw()
+        draw(dev: dev)
         NSGraphicsContext.restoreGraphicsState()
         return rep.representation(using: .png, properties: [:])
     }
 
     /// 生成 iconutil 需要的 .iconset 目录
-    static func writeIconset(to dir: String) throws {
+    static func writeIconset(to dir: String, dev: Bool = false) throws {
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         for base in [16, 32, 128, 256, 512] {
             for scale in [1, 2] {
                 let name = scale == 1 ? "icon_\(base)x\(base).png" : "icon_\(base)x\(base)@2x.png"
-                try png(size: base * scale)?.write(to: URL(fileURLWithPath: "\(dir)/\(name)"))
+                try png(size: base * scale, dev: dev)?.write(to: URL(fileURLWithPath: "\(dir)/\(name)"))
             }
         }
     }

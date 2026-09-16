@@ -112,7 +112,7 @@ brew install suink/tap/sleepcat
 ```sh
 git clone https://github.com/SuInk/sleepcat.git
 cd sleepcat
-./build.sh                          # 构建出 SleepCat.app
+./build.sh                          # 构建出 SleepCat.app（开发版：图标带 DEV 角标，菜单栏的猫是橙色的）
 open SleepCat.app                   # 直接运行
 cp -R SleepCat.app /Applications/   # 可选：放进「应用程序」
 ```

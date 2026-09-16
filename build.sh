@@ -1,10 +1,13 @@
 #!/bin/bash
 # 构建 SleepCat.app
+# 默认是开发版：应用图标带橙色「DEV」角标、菜单栏的猫是橙色的，和装好的正式版分得开。
+# 发版时 release.sh 用 CHANNEL=release 构建
 set -euo pipefail
 cd "$(dirname "$0")"
 
 swift build -c release
 
+CHANNEL=${CHANNEL:-dev}
 APP="SleepCat.app"
 IDENTIFIER="cn.suink.sleepcat"
 rm -rf "$APP"
@@ -14,7 +17,11 @@ cp .build/release/SleepCat "$APP/Contents/MacOS/SleepCat"
 
 # 应用图标由代码绘制：先导出 .iconset，再用系统自带的 iconutil 转成 .icns
 ICONSET="$(mktemp -d)/AppIcon.iconset"
-.build/release/SleepCat --make-iconset "$ICONSET"
+if [[ "$CHANNEL" == dev ]]; then
+    .build/release/SleepCat --make-iconset "$ICONSET" --dev
+else
+    .build/release/SleepCat --make-iconset "$ICONSET"
+fi
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
 # AGPL 要求随程序一起提供许可证副本，打进包里
@@ -34,6 +41,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key>         <string>1</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
     <key>CFBundleIconFile</key>        <string>AppIcon</string>
+    <key>SleepCatChannel</key>         <string>$CHANNEL</string>
     <key>LSMinimumSystemVersion</key>  <string>13.0</string>
     <key>LSUIElement</key>             <true/>
     <key>NSHighResolutionCapable</key> <true/>

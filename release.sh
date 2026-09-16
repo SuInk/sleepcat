@@ -41,7 +41,7 @@ commit_message() {
 
 # 1. 更新版本号并构建
 sed -E -i '' "s|(<key>CFBundleShortVersionString</key> +<string>)[^<]*|\1$VERSION|" build.sh
-./build.sh
+CHANNEL=release ./build.sh
 
 # 2. 打包 + 校验和
 ditto -c -k --keepParent SleepCat.app "$ZIP"

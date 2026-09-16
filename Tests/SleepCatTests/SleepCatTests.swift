@@ -989,3 +989,16 @@ import AppKit
     }
 }
 
+@Suite struct BuildChannelTests {
+    @Test func onlyDevBuildsAreMarked() {
+        #expect(BuildChannel.isDev(info: ["SleepCatChannel": "dev"]))
+        #expect(!BuildChannel.isDev(info: ["SleepCatChannel": "release"]))
+        #expect(!BuildChannel.isDev(info: [:]), "没写渠道的按正式版，README 配图用的就是这种")
+        #expect(!BuildChannel.isDev(info: nil))
+    }
+
+    @Test func devIconLooksDifferent() {
+        #expect(AppIcon.png(size: 64) != AppIcon.png(size: 64, dev: true))
+    }
+}
+
