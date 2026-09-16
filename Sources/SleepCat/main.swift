@@ -1560,6 +1560,15 @@ if let i = CommandLine.arguments.firstIndex(of: "--fold-bench") {
 // 调试：./SleepCat --screen-permission 查屏幕录制权限的真实状态
 if CommandLine.arguments.contains("--screen-permission") {
     print("CGPreflightScreenCaptureAccess：\(CGPreflightScreenCaptureAccess() ? "有权限" : "没有权限")")
+    // 结果同时写日志：用 open 启动时没有终端可打印，而只有 open 启动，
+    // 系统才会把权限请求算在 SleepCat 自己头上（命令行启动会算在启动它的那个程序上）
+    LidBlocker.log("权限检查：preflight=\(CGPreflightScreenCaptureAccess())")
+    if CommandLine.arguments.contains("request") {
+        print("正在申请（没有记录时会弹框，已被拒绝则直接返回）…")
+        let granted = CGRequestScreenCaptureAccess()
+        print("CGRequestScreenCaptureAccess：\(granted ? "已授权" : "未授权")")
+        LidBlocker.log("权限检查：request=\(granted)")
+    }
     let sema = DispatchSemaphore(value: 0)
     SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
         if let content {
