@@ -16,6 +16,9 @@ cp .build/release/SleepCat "$APP/Contents/MacOS/SleepCat"
 ICONSET="$(mktemp -d)/AppIcon.iconset"
 .build/release/SleepCat --make-iconset "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+
+# AGPL 要求随程序一起提供许可证副本，打进包里
+cp LICENSE "$APP/Contents/Resources/LICENSE"
 rm -rf "$(dirname "$ICONSET")"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
