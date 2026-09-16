@@ -1205,7 +1205,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// 合盖防护看门狗。
     ///
-    /// 按理说 disablesleep 设一次就该管到重启（其他项目都这么假设），但这台机器上
+    /// 按理说 disablesleep 设一次就该管到重启，但这台机器上
     /// 实测被外部清掉过：23:31 设成 1 并验证通过，期间我们没动过、也没重启，
     /// 到 00:49 读回来已经是 0，中间两次合盖就这么睡了。
     ///
