@@ -599,6 +599,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         timedMenu.addItem(.separator())
         let customMinutes = activePreset.flatMap { m in Self.presets.contains { $0.1 == m } ? nil : m }
         let isCustom = blocker.isActive && customMinutes != nil
+        let timedValue: String? = !blocker.isActive ? nil
+            : deadline == nil ? "无限期"
+            : customMinutes.map { DurationPicker.durationText(minutes: $0) }
+                ?? Self.presets.first { $0.1 == activePreset }?.0
+        timedRoot.attributedTitle = Self.trailingTitle("喵住时长", value: timedValue)
         let custom = makeItem(
             isCustom ? "自定义（\(DurationPicker.durationText(minutes: customMinutes!))）…" : "自定义…",
             #selector(menuActivateCustom))
@@ -625,7 +630,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let lowItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         lowItem.image = symbol("battery.25")
         if BatteryMonitor.read() != nil {
-            lowItem.title = lowBatteryThreshold.map { "低电量自动暂停（\($0)%）" } ?? "低电量自动暂停（已关闭）"
+            lowItem.title = "低电量自动暂停"
+            lowItem.attributedTitle = Self.trailingTitle("低电量自动暂停", value: Self.thresholdText(lowBatteryThreshold))
             lowItem.toolTip = "只在用电池时生效；插上电源后会自动恢复喵住"
             let thresholds = NSMenu()
             for (label, value) in [("关闭", 0), ("低于 10%", 10), ("低于 20%", 20), ("低于 30%", 30)] {
@@ -633,7 +639,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                   isOn: { [weak self] in (self?.lowBatteryThreshold ?? 0) == value },
                                                   action: { [weak self] in
                     self?.applyLowBatteryThreshold(value == 0 ? nil : value)
-                    lowItem.title = (value == 0) ? "低电量自动暂停（已关闭）" : "低电量自动暂停（\(value)%）"
+                    lowItem.attributedTitle = Self.trailingTitle("低电量自动暂停",
+                                                                 value: Self.thresholdText(value == 0 ? nil : value))
                 }))
             }
             if lowBatteryThreshold != nil, Notifier.shared.isDenied {
@@ -645,7 +652,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(lowItem)
             menu.setSubmenu(thresholds, for: lowItem)
         } else {
-            lowItem.title = "低电量自动暂停（这台 Mac 没有电池）"
+            lowItem.title = "低电量自动暂停"
+            lowItem.attributedTitle = Self.trailingTitle("低电量自动暂停", value: "没有电池")
             lowItem.isEnabled = false
             menu.addItem(lowItem)
         }
@@ -771,25 +779,40 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.blocker.stop()
     }
 
-    /// 功耗：行尾靠右显示当前读数，子菜单里是概览面板
-    /// 读数放在行尾靠右、灰色，挨着子菜单箭头。用右对齐制表位推过去；
-    /// 系统的菜单项徽标（badge）是个胶囊底色，和别的行不搭，所以不用
-    static func setPowerReading(_ item: NSMenuItem, _ reading: String) {
-        item.title = "功耗"
-        let para = NSMutableParagraphStyle()
-        para.tabStops = [NSTextTab(textAlignment: .right, location: powerReadingTab)]
+    /// 带子菜单的行：左边名字，右边灰色的当前值（喵住时长、低电量阈值、功耗读数）。
+    ///
+    /// 用右对齐制表位推到行尾。系统在子菜单箭头左边留了一大块空，最后一个字加负字距，
+    /// 让排版宽度比实际字形短一截，字就伸进那块空里、挨着箭头；菜单宽度按缩短后的算，不会被撑宽。
+    /// 系统的菜单项徽标（badge）带胶囊底色，和别的行不搭，所以不用
+    static func trailingTitle(_ title: String, value: String?) -> NSAttributedString {
         let font = NSFont.menuFont(ofSize: 0)
-        let title = NSMutableAttributedString(string: "功耗\t", attributes: [.font: font, .paragraphStyle: para])
-        title.append(NSAttributedString(string: reading, attributes: [
+        guard let value, !value.isEmpty else { return NSAttributedString(string: title, attributes: [.font: font]) }
+        let para = NSMutableParagraphStyle()
+        para.tabStops = [NSTextTab(textAlignment: .right, location: trailingTab)]
+        let text = NSMutableAttributedString(string: title + "\t", attributes: [.font: font, .paragraphStyle: para])
+        text.append(NSAttributedString(string: value, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: font.pointSize, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: para,
         ]))
-        item.attributedTitle = title
+        text.addAttribute(.kern, value: -trailingOverhang, range: NSRange(location: text.length - 1, length: 1))
+        return text
     }
 
-    /// 制表位（从文字起点算）。菜单宽度由最宽的一行决定，这个值让功耗行正好和现在的菜单一样宽，
-    /// 读数的右边缘落在菜单右侧；用 --snapshot-menu 截图核对
-    static let powerReadingTab: CGFloat = 219
+    /// 制表位（从文字起点算）和伸进箭头左边空白的距离。
+    /// 制表位决定这几行至少多宽，取成和现在菜单一样宽，值的右边缘才落在最右。
+    /// 伸进去最多约 13 点，再多系统就按标题区域的右边界截住了，加了也不动；用 --snapshot-menu 截图核对
+    static let trailingTab: CGFloat = 219
+    static let trailingOverhang: CGFloat = 18
+
+    static func thresholdText(_ threshold: Int?) -> String {
+        threshold.map { "低于 \($0)%" } ?? "已关闭"
+    }
+
+    /// 功耗：行尾显示当前读数，子菜单里是概览面板
+    static func setPowerReading(_ item: NSMenuItem, _ reading: String) {
+        item.title = "功耗"
+        item.attributedTitle = trailingTitle("功耗", value: reading)
+    }
 
     private func powerMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: "功耗", action: nil, keyEquivalent: "")
