@@ -14,7 +14,7 @@ final class NotchIsland: NSObject {
         let detail: String
         /// 实时整机功耗，读不到就不显示
         var watts: Double? = nil
-        /// 读数下面的小字：充电 37.5 W / 电源供电 / 用电池
+        /// 读数下面的小字：适配器 · 充电中 / 适配器 / 电池放电
         var powerCaption: String? = nil
     }
 
