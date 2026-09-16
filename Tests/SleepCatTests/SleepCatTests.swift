@@ -818,3 +818,105 @@ import AppKit
     }
 }
 
+
+@Suite struct PowerFlowTests {
+    @Test func chargingShowsWhereTheAdapterPowerGoes() {
+        // 实测过的一组：适配器 49.1 W，整机 11.6 W，充进电池 37.5 W
+        let flow = PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5)
+        #expect(flow.state == .charging)
+        #expect(flow.summary == "适配器 49.1 W → 整机 11.6 W + 充电 37.5 W")
+        #expect(flow.shortState == "充电 37.5 W")
+        #expect(flow.isConsistent)
+    }
+
+    @Test func pluggedInAndFullDoesNotClaimCharging() {
+        // 充满后电流在零点几安上下抖，不能说成在充电
+        let flow = PowerFlow(system: 11.6, adapter: 11.9, battery: 0.2)
+        #expect(flow.state == .pluggedIn)
+        #expect(flow.summary == "适配器 11.9 W → 整机 11.6 W")
+        #expect(flow.shortState == "电源供电")
+    }
+
+    @Test func onBatteryShowsTheDischarge() {
+        let flow = PowerFlow(system: 9.7, adapter: nil, battery: -10.2)
+        #expect(flow.state == .onBattery)
+        #expect(flow.summary == "电池放电 10.2 W → 整机 9.7 W")
+        #expect(flow.shortState == "用电池")
+        #expect(flow.isConsistent, "没插电时没有适配器可对账")
+    }
+
+    @Test func selfCheckCatchesReadingsThatDoNotAddUp() {
+        // 适配器说 60 W，整机 + 充电只有 20 W：某个读数错了
+        #expect(!PowerFlow(system: 10, adapter: 60, battery: 10).isConsistent)
+        // 转换损耗带来的小误差不算错
+        #expect(PowerFlow(system: 27.0, adapter: 63.0, battery: 36.5).isConsistent)
+    }
+
+    @Test func amperageIsReadAsSigned() {
+        // 注册表里的放电电流是 64 位补码：18446744073709550845 就是 -771 mA
+        #expect(BatteryMonitor.signedMilliamps(NSNumber(value: UInt64(18446744073709550845))) == -771)
+        #expect(BatteryMonitor.signedMilliamps(NSNumber(value: 2973)) == 2973)
+    }
+}
+
+@Suite struct LogRetentionTests {
+    let now = Date(timeIntervalSince1970: 1_789_560_000)   // 2026-09-16 左右
+
+    func stamp(daysAgo: Double, format: String, timeZone: TimeZone) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = timeZone
+        f.dateFormat = format
+        return f.string(from: now.addingTimeInterval(-daysAgo * 86400))
+    }
+
+    @Test func appLogKeepsThirtyDays() {
+        let utc = TimeZone(identifier: "UTC")!
+        let old = "[\(stamp(daysAgo: 45, format: "yyyy-MM-dd HH:mm:ss Z", timeZone: utc))] 很久以前"
+        let continuation = "  报错的第二行"
+        let recent = "[\(stamp(daysAgo: 3, format: "yyyy-MM-dd HH:mm:ss Z", timeZone: utc))] 三天前"
+        let text = [old, continuation, recent, ""].joined(separator: "\n")
+        let trimmed = LogRetention.trimAppLog(text, now: now)
+        #expect(!trimmed.contains("很久以前"))
+        #expect(!trimmed.contains("报错的第二行"), "没有时间戳的续行跟着上一行一起删")
+        #expect(trimmed.contains("三天前"))
+    }
+
+    @Test func powerLogKeepsHeaderAndThirtyDays() {
+        let tz = TimeZone(identifier: "Asia/Shanghai")!
+        let old = stamp(daysAgo: 31, format: "yyyy-MM-dd HH:mm", timeZone: tz)
+        let edge = stamp(daysAgo: 29.9, format: "yyyy-MM-dd HH:mm", timeZone: tz)
+        let text = [PowerLog.header, "\(old),\(old),10,1.00,6.0,9.0,60", "\(edge),\(edge),10,2.00,12.0,20.0,60", ""]
+            .joined(separator: "\n")
+        let trimmed = LogRetention.trimPowerLog(text, now: now, timeZone: tz)
+        #expect(trimmed.hasPrefix(PowerLog.header), "表头不能被删")
+        #expect(!trimmed.contains(",1.00,"))
+        #expect(trimmed.contains(",2.00,"), "29.9 天前的还在期限内")
+    }
+
+    @Test func rewritingKeepsTheBOMAndSkipsUntouchedFiles() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sleepcat-retention-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let power = dir.appendingPathComponent("功耗记录.csv")
+        let app = dir.appendingPathComponent("SleepCat.log")
+
+        let tz = TimeZone.current
+        let old = stamp(daysAgo: 40, format: "yyyy-MM-dd HH:mm", timeZone: tz)
+        let fresh = stamp(daysAgo: 1, format: "yyyy-MM-dd HH:mm", timeZone: tz)
+        let body = "\(PowerLog.header)\n\(old),\(old),10,1.00,6.0,9.0,60\n\(fresh),\(fresh),10,2.00,12.0,20.0,60\n"
+        try (Data([0xEF, 0xBB, 0xBF]) + Data(body.utf8)).write(to: power)
+        let recentLog = "[\(stamp(daysAgo: 1, format: "yyyy-MM-dd HH:mm:ss Z", timeZone: tz))] 昨天\n"
+        try recentLog.write(to: app, atomically: true, encoding: .utf8)
+        let before = try FileManager.default.attributesOfItem(atPath: app.path)[.modificationDate] as? Date
+
+        LogRetention.apply(appLog: app, powerLog: power, now: now)
+
+        let data = try Data(contentsOf: power)
+        #expect(Array(data.prefix(3)) == [0xEF, 0xBB, 0xBF], "BOM 丢了 Excel 打开中文会乱码")
+        let text = try #require(String(data: data.dropFirst(3), encoding: .utf8))
+        #expect(!text.contains(",1.00,") && text.contains(",2.00,"))
+        let after = try FileManager.default.attributesOfItem(atPath: app.path)[.modificationDate] as? Date
+        #expect(before == after, "没有要删的就不该重写文件")
+    }
+}

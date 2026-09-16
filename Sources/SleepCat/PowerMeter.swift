@@ -17,6 +17,17 @@ enum PowerMeter {
         return watts
     }
 
+    /// 读此刻的能量流。插电时适配器输入读 SMC 的 PDTR，读不到就用「整机 + 充电」推算
+    static func readFlow() -> PowerFlow? {
+        guard let system = read() else { return nil }
+        let battery = BatteryMonitor.batteryWatts()
+        let pluggedIn = BatteryMonitor.read().map { !$0.onBattery } ?? true   // 台式机没电池，当作插着电
+        guard pluggedIn else { return PowerFlow(system: system, adapter: nil, battery: battery) }
+        let measured = SMC.shared.readFloat("PDTR").flatMap { $0 > 0.5 && $0 < 500 ? $0 : nil }
+        let adapter = measured ?? system + max(0, battery ?? 0)
+        return PowerFlow(system: system, adapter: adapter, battery: battery)
+    }
+
     /// 始终带一位小数：整机功耗就在十几二十几瓦这个量级，取整看不出变化
     static func wattsText(_ watts: Double) -> String {
         String(format: "%.1f W", watts)
@@ -31,6 +42,58 @@ enum PowerMeter {
     /// 电量同样带一位小数，跟功耗的写法保持一致
     static func energyText(_ wattHours: Double) -> String {
         String(format: "%.1f Wh", wattHours)
+    }
+}
+
+/// 此刻电从哪来、到哪去：适配器输入 = 整机功耗 + 充进电池的功率；用电池时电池放电供整机。
+/// 三个数互相能对账，所以顺带当自检用
+struct PowerFlow: Equatable {
+    /// 整机功耗
+    let system: Double
+    /// 适配器输入；没插电时为 nil
+    let adapter: Double?
+    /// 电池功率：充电为正，放电为负；没有电池时为 nil
+    let battery: Double?
+
+    /// 低于这个值当作电池不充不放（电流读数有零点几瓦的抖动）
+    static let idleThreshold: Double = 0.5
+
+    enum State: Equatable { case charging, pluggedIn, onBattery }
+
+    var state: State {
+        guard adapter != nil else { return .onBattery }
+        if let battery, battery > Self.idleThreshold { return .charging }
+        return .pluggedIn
+    }
+
+    /// 汇总的一行，比如「适配器 49.1 W → 整机 11.6 W + 充电 37.5 W」
+    var summary: String {
+        let w = PowerMeter.wattsText
+        switch state {
+        case .charging:
+            return "适配器 \(w(adapter ?? system)) → 整机 \(w(system)) + 充电 \(w(battery ?? 0))"
+        case .pluggedIn:
+            return "适配器 \(w(adapter ?? system)) → 整机 \(w(system))"
+        case .onBattery:
+            let discharge = max(0, -(battery ?? -system))
+            return "电池放电 \(w(discharge)) → 整机 \(w(system))"
+        }
+    }
+
+    /// 灵动岛那种地方放得下的短说法
+    var shortState: String {
+        switch state {
+        case .charging: return "充电 \(PowerMeter.wattsText(battery ?? 0))"
+        case .pluggedIn: return "电源供电"
+        case .onBattery: return "用电池"
+        }
+    }
+
+    /// 自检：插电时适配器输入应该约等于整机 + 充电。差得太多说明某个读数不可信
+    var isConsistent: Bool {
+        guard let adapter else { return true }
+        let expected = system + max(0, battery ?? 0)
+        return abs(adapter - expected) <= max(3, expected * 0.15)
     }
 }
 

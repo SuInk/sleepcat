@@ -14,6 +14,8 @@ final class NotchIsland: NSObject {
         let detail: String
         /// 实时整机功耗，读不到就不显示
         var watts: Double? = nil
+        /// 读数下面的小字：充电 37.5 W / 电源供电 / 用电池
+        var powerCaption: String? = nil
     }
 
     var statusProvider: (() -> Status)?
@@ -173,8 +175,8 @@ extension NotchIsland {
         let notch = NSSize(width: 208, height: 37.5)   // 14 寸 MacBook Pro 的刘海
         let size = NSSize(width: 404, height: notch.height + contentHeight)
         let samples: [(String, Status)] = [
-            ("island-active", Status(active: true, title: "喵住中", detail: "还剩 1 小时 59 分 · 点按停止", watts: 12.5)),
-            ("island-idle", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: 4.3)),
+            ("island-active", Status(active: true, title: "喵住中", detail: "还剩 1 小时 59 分 · 点按停止", watts: 11.6, powerCaption: "充电 37.5 W")),
+            ("island-idle", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: 4.3, powerCaption: "用电池")),
         ]
         for (name, status) in samples {
             let v = IslandView(frame: NSRect(origin: .zero, size: size))
@@ -219,6 +221,7 @@ private final class IslandView: NSView {
     private let detailLabel = NSTextField(labelWithString: "")
     private let powerIcon = NSImageView()
     private let powerLabel = NSTextField(labelWithString: "")
+    private let captionLabel = NSTextField(labelWithString: "")
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -255,6 +258,11 @@ private final class IslandView: NSView {
         powerLabel.textColor = .white
         powerLabel.alignment = .right
         capsule.addSubview(powerLabel)
+
+        captionLabel.font = .systemFont(ofSize: 10)
+        captionLabel.textColor = NSColor.white.withAlphaComponent(0.55)
+        captionLabel.alignment = .right
+        capsule.addSubview(captionLabel)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -264,6 +272,7 @@ private final class IslandView: NSView {
         titleLabel.stringValue = status.title
         detailLabel.stringValue = status.detail
         powerLabel.stringValue = status.watts.map { PowerMeter.wattsText($0) } ?? ""
+        captionLabel.stringValue = status.watts == nil ? "" : (status.powerCaption ?? "")
         powerIcon.isHidden = status.watts == nil
         needsLayout = true
     }
@@ -279,11 +288,14 @@ private final class IslandView: NSView {
                                 width: iconSize.width, height: iconSize.height)
         // 右侧功耗：读数右对齐，闪电贴在读数左边
         let powerWidth: CGFloat = powerLabel.stringValue.isEmpty ? 0 : 76
-        powerLabel.frame = NSRect(x: bounds.width - 22 - powerWidth, y: midY - 13,
+        let hasCaption = !captionLabel.stringValue.isEmpty
+        // 有小字时读数往上挪一点，两行一起在内容区里居中
+        powerLabel.frame = NSRect(x: bounds.width - 22 - powerWidth, y: midY - (hasCaption ? 5 : 13),
                                   width: powerWidth, height: 22)
+        captionLabel.frame = NSRect(x: bounds.width - 22 - 100, y: midY - 19, width: 100, height: 14)
         let boltSize: CGFloat = 12
         let textWidth = powerLabel.attributedStringValue.size().width
-        powerIcon.frame = NSRect(x: powerLabel.frame.maxX - textWidth - boltSize - 4, y: midY - 8,
+        powerIcon.frame = NSRect(x: powerLabel.frame.maxX - textWidth - boltSize - 4, y: powerLabel.frame.minY + 5,
                                  width: boltSize, height: boltSize + 2)
 
         let textX = iconView.frame.maxX + 14

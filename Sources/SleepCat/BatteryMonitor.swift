@@ -34,19 +34,27 @@ final class BatteryMonitor {
     /// 用电池时的放电功率（瓦）：电压 × 电流，读的是 AppleSmartBattery 注册表。
     /// 只在放电时有意义——插着电源时这里量的是充电电流，不是整机功耗
     static func dischargeWatts() -> Double? {
+        guard let watts = batteryWatts(), watts < 0 else { return nil }
+        return -watts
+    }
+
+    /// 电池此刻的功率（瓦）：充电为正，放电为负。读的是 AppleSmartBattery 的电压 × 电流
+    static func batteryWatts() -> Double? {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
         guard service != 0 else { return nil }
         defer { IOObjectRelease(service) }
-        func number(_ key: String) -> Double? {
-            guard let value = IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? NSNumber else { return nil }
-            return value.doubleValue
+        func number(_ key: String) -> NSNumber? {
+            IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? NSNumber
         }
-        // Amperage 是有符号的，放电时为负，取出来是 2 的补码
-        guard let millivolts = number("Voltage"), var milliamps = number("Amperage") else { return nil }
-        if milliamps > Double(UInt32.max) { milliamps -= Double(UInt64(1) << 64) }
-        guard milliamps < 0 else { return nil }
-        return millivolts * -milliamps / 1_000_000
+        guard let millivolts = number("Voltage")?.doubleValue, let rawAmps = number("Amperage") else { return nil }
+        return millivolts * signedMilliamps(rawAmps) / 1_000_000
+    }
+
+    /// Amperage 是有符号的，放电时为负，但注册表里存成了 64 位无符号数（-771 显示成 18446744073709550845）。
+    /// 必须按整数的位模式重新解释：先转成 Double 再减 2⁶⁴ 会因为精度不够算出 0。纯函数，便于测试
+    static func signedMilliamps(_ raw: NSNumber) -> Double {
+        Double(raw.int64Value)
     }
 
     func start() {

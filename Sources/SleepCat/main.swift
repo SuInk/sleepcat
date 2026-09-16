@@ -62,6 +62,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var minuteSum = 0.0                 // 每分钟往磁盘写一条，不是每次采样都写
     private var minuteCount = 0
     private var minuteStart = Date()
+    private var retentionTimer: Timer?
     private var offTimer: Timer?
     private var menuRefreshTimer: Timer?
     private var deadline: Date?
@@ -131,6 +132,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateLegacyDefaults()   // 必须在读任何设置之前
         Notifier.shared.setUp()
+        trimOldLogs()
+        // 一直开着的菜单栏应用不会天天重启，所以除了启动时，每天再清一次
+        retentionTimer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
+            self?.trimOldLogs()
+        }
         powerHistory = PowerLog.loadHistory()   // 接上重启前的曲线
         startPowerSampling()
         if lowBatteryThreshold != nil, BatteryMonitor.read() != nil {
@@ -146,13 +152,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         island.statusProvider = { [weak self] in
             guard let self else { return .init(active: false, title: "SleepCat", detail: "") }
             // 展开期间每秒刷新一次，这里现读 SMC（一次不到 1 毫秒），是真正的实时值
-            let watts = PowerMeter.read()
+            let flow = PowerMeter.readFlow()
             if self.blocker.isActive {
                 var detail = self.deadline.map { "还剩 \(Self.format($0.timeIntervalSinceNow))" } ?? "无限期"
                 if self.lidBlocker.isActive { detail += " · 含合盖" }
-                return .init(active: true, title: "喵住中", detail: detail + " · 点按停止", watts: watts)
+                return .init(active: true, title: "喵住中", detail: detail + " · 点按停止",
+                             watts: flow?.system, powerCaption: flow?.shortState)
             }
-            return .init(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: watts)
+            return .init(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住",
+                         watts: flow?.system, powerCaption: flow?.shortState)
         }
         island.onToggle = { [weak self] in self?.toggle() }
         if duoEnabled {
@@ -466,6 +474,13 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return watts
     }
 
+    /// 日志和功耗记录只留最近 30 天；放到后台做，文件大时不卡界面
+    private func trimOldLogs() {
+        DispatchQueue.global(qos: .utility).async {
+            LogRetention.apply(appLog: URL(fileURLWithPath: LidBlocker.logPath), powerLog: PowerLog.fileURL)
+        }
+    }
+
     /// 每段记录多长。10 分钟一行，一天 144 行，既看得出变化、文件也不大
     static let powerRecordInterval: TimeInterval = 600
 
@@ -774,7 +789,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let sub = NSMenu()
         let summary = NSMenuItem(title: "当前 \(PowerMeter.wattsText(watts))", action: nil, keyEquivalent: "")
         summary.view = PowerSummaryView(history: { [weak self] in self?.powerHistory ?? PowerHistory() },
-                                        watts: { [weak self] in self?.latestWatts })
+                                        watts: { [weak self] in self?.latestWatts },
+                                        flow: { PowerMeter.readFlow() })
         sub.addItem(summary)
         sub.addItem(.separator())
         sub.addItem(makeItem("功耗曲线…", #selector(openPowerWindow), symbol: "chart.xyaxis.line"))
@@ -1422,6 +1438,19 @@ if let i = CommandLine.arguments.firstIndex(of: "--blur-demo") ?? CommandLine.ar
         else { blur.showDemo(progress: args.first ?? 0.7, seconds: args.count > 1 ? args[1] : 6) }
     }
     NSApplication.shared.run()
+}
+
+// 调试：./SleepCat --power-flow 打印此刻的能量流和自检结果
+if CommandLine.arguments.contains("--power-flow") {
+    if let flow = PowerMeter.readFlow() {
+        print("整机 \(PowerMeter.wattsText(flow.system))，适配器 \(flow.adapter.map(PowerMeter.wattsText) ?? "未插电")，"
+              + "电池 \(flow.battery.map { String(format: "%+.1f W", $0) } ?? "无")")
+        print(flow.summary)
+        print("自检：\(flow.isConsistent ? "对得上" : "对不上，某个读数不可信")")
+    } else {
+        print("读不到功耗")
+    }
+    exit(0)
 }
 
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出

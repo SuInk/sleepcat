@@ -123,12 +123,14 @@ private final class BackdropView: NSView {
 final class PowerSummaryView: NSView {
     private let historyProvider: () -> PowerHistory
     private let wattsProvider: () -> Double?
+    private let flowProvider: () -> PowerFlow?
 
     /// 和 MenuRow 的图标列对齐
     private static let leading: CGFloat = 30
     private static let trailing: CGFloat = 20
     private static let headerHeight: CGFloat = 26
     private static let statsHeight: CGFloat = 16
+    private static let flowHeight: CGFloat = 16
     private static let ticksHeight: CGFloat = 13
 
     private lazy var spanControl: NSSegmentedControl = {
@@ -141,16 +143,19 @@ final class PowerSummaryView: NSView {
         return control
     }()
 
-    init(history: @escaping () -> PowerHistory, watts: @escaping () -> Double?) {
+    init(history: @escaping () -> PowerHistory, watts: @escaping () -> Double?,
+         flow: @escaping () -> PowerFlow? = { nil }) {
         historyProvider = history
         wattsProvider = watts
+        flowProvider = flow
         super.init(frame: .zero)
         // 宽度按最长的统计行估：峰值三位数时也放得下
         let sample = "近 24 小时　平均 188.8 W · 峰值 188.8 W · 最低 188.8 W"
         let statsWidth = ceil(NSAttributedString(string: sample, attributes: [.font: NSFont.systemFont(ofSize: 11)])
             .size().width)
         let width = max(statsWidth, PowerChart.size.width) + Self.leading + Self.trailing
-        let height = Self.headerHeight + Self.statsHeight + PowerChart.size.height + 8 + Self.ticksHeight + 8
+        let height = Self.headerHeight + Self.flowHeight + Self.statsHeight
+            + PowerChart.size.height + 8 + Self.ticksHeight + 8
         setFrameSize(NSSize(width: width, height: height))
         autoresizingMask = [.width]
         addSubview(spanControl)
@@ -179,6 +184,12 @@ final class PowerSummaryView: NSView {
         let current = wattsProvider().map { "当前 \(PowerMeter.wattsText($0))" } ?? "当前读不到"
         draw(current, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 15, weight: .semibold),
              color: .labelColor)
+
+        // 汇总：电从哪来、到哪去
+        y -= Self.flowHeight
+        if let flow = flowProvider() {
+            draw(flow.summary, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .labelColor)
+        }
 
         y -= Self.statsHeight
         let stats = PowerMeter.statsText(visible).map { "近 \(PowerHistory.spanText(visible.span))　\($0)" }
@@ -224,7 +235,8 @@ final class PowerSummaryView: NSView {
         for (name, appearance) in [("power-summary", NSAppearance(named: .aqua)),
                                    ("power-summary-dark", NSAppearance(named: .darkAqua))] {
             NSAppearance.current = appearance
-            let view = PowerSummaryView(history: { history }, watts: { 12.5 })
+            let view = PowerSummaryView(history: { history }, watts: { 11.6 },
+                                        flow: { PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5) })
             view.appearance = appearance
             // 菜单里是半透明底，这里垫一层菜单底色，不然浅色文字在透明底上看不见
             let canvas = BackdropView(frame: view.bounds)
