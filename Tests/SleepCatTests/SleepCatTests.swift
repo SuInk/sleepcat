@@ -848,6 +848,31 @@ import AppKit
         #expect(flow.isConsistent, "没插电时没有适配器可对账")
     }
 
+    @Test func barSplitsAdapterPowerUpToItsRating() {
+        let flow = PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5, adapterRated: 70)
+        let (total, segments) = flow.bar
+        #expect(total == 70, "插电时全长是额定功率")
+        #expect(segments.map(\.kind) == [.system, .charge, .spare])
+        #expect(abs(segments[0].watts - 11.6) < 0.001)
+        #expect(abs(segments[1].watts - 37.5) < 0.001)
+        #expect(abs(segments[2].watts - 20.9) < 0.001)
+        #expect(abs(segments.map(\.watts).reduce(0, +) - total) < 0.001, "各段加起来正好是全长")
+    }
+
+    @Test func barWithoutRatingOrWhileFull() {
+        // 读不到额定功率时全长就是实际输入，没有余量那段；充满时也没有充电那段
+        let full = PowerFlow(system: 18.6, adapter: 18.9, battery: 0).bar
+        #expect(full.total == 18.9)
+        #expect(full.segments.map(\.kind) == [.system])
+    }
+
+    @Test func barOnBatteryShowsConversionLoss() {
+        let (total, segments) = PowerFlow(system: 9.7, adapter: nil, battery: -10.2).bar
+        #expect(total == 10.2)
+        #expect(segments.map(\.kind) == [.system, .loss])
+        #expect(abs(segments[1].watts - 0.5) < 0.001)
+    }
+
     @Test func selfCheckCatchesReadingsThatDoNotAddUp() {
         // 适配器说 60 W，整机 + 充电只有 20 W：某个读数错了
         #expect(!PowerFlow(system: 10, adapter: 60, battery: 10).isConsistent)

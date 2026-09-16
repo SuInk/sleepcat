@@ -4,6 +4,7 @@
 
 import AppKit
 import IOKit
+import IOKit.ps
 
 /// 整机功耗读数。
 /// 首选 SMC 的 PSTR（system total power，插电和用电池都准）；
@@ -34,12 +35,20 @@ enum PowerMeter {
             let discharge = valid("PPBR") ?? BatteryMonitor.dischargeWatts() ?? system
             return PowerFlow(system: system, adapter: nil, battery: -discharge)
         }
+        let rated = adapterRatedWatts()
         if let adapter = valid("PDTR") {
             return PowerFlow(system: system, adapter: adapter,
-                             battery: hasBattery ? max(0, adapter - system) : nil)
+                             battery: hasBattery ? max(0, adapter - system) : nil, adapterRated: rated)
         }
         let battery = BatteryMonitor.batteryWatts()
-        return PowerFlow(system: system, adapter: system + max(0, battery ?? 0), battery: battery)
+        return PowerFlow(system: system, adapter: system + max(0, battery ?? 0), battery: battery, adapterRated: rated)
+    }
+
+    /// 适配器额定功率（瓦）：系统电源信息里就有
+    static func adapterRatedWatts() -> Double? {
+        guard let details = IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any],
+              let watts = details[kIOPSPowerAdapterWattsKey] as? Int, watts > 0 else { return nil }
+        return Double(watts)
     }
 
     /// 始终带一位小数：整机功耗就在十几二十几瓦这个量级，取整看不出变化
@@ -68,6 +77,8 @@ struct PowerFlow: Equatable {
     let adapter: Double?
     /// 电池功率：充电为正，放电为负；没有电池时为 nil
     let battery: Double?
+    /// 适配器额定功率（比如 70 W）；读不到或没插电时为 nil
+    var adapterRated: Double? = nil
 
     /// 低于这个值当作电池不充不放（电流读数有零点几瓦的抖动）
     static let idleThreshold: Double = 0.5
@@ -106,6 +117,37 @@ struct PowerFlow: Equatable {
         case .charging: return "适配器 · 充电中"
         case .pluggedIn: return "适配器"
         case .onBattery: return "电池放电"
+        }
+    }
+
+    /// 流向条的一段
+    struct Segment: Equatable {
+        enum Kind: Equatable { case system, charge, spare, loss }
+        let kind: Kind
+        let label: String
+        let watts: Double
+    }
+
+    /// 流向条：插电时全长是适配器额定功率，分成整机 / 充电 / 余量；
+    /// 用电池时全长是电池放出的功率，分成整机 / 转换损耗。纯函数，便于测试
+    var bar: (total: Double, segments: [Segment]) {
+        switch state {
+        case .charging, .pluggedIn:
+            let input = adapter ?? system
+            let used = min(system, input)
+            var segments = [Segment(kind: .system, label: "整机", watts: used)]
+            if state == .charging { segments.append(Segment(kind: .charge, label: "充电", watts: max(0, input - used))) }
+            let total = max(adapterRated ?? input, input)
+            let spare = total - input
+            if spare >= 0.1 { segments.append(Segment(kind: .spare, label: "余量", watts: spare)) }
+            return (total, segments)
+        case .onBattery:
+            let discharge = headline.watts
+            let used = min(system, discharge)
+            var segments = [Segment(kind: .system, label: "整机", watts: used)]
+            let loss = discharge - used
+            if loss >= 0.1 { segments.append(Segment(kind: .loss, label: "损耗", watts: loss)) }
+            return (max(discharge, used), segments)
         }
     }
 

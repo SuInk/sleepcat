@@ -130,7 +130,7 @@ final class PowerSummaryView: NSView {
     private static let trailing: CGFloat = 20
     private static let headerHeight: CGFloat = 26
     private static let statsHeight: CGFloat = 16
-    private static let flowHeight: CGFloat = 16
+    private static let flowHeight: CGFloat = 30   // 流向条 + 图例
     private static let ticksHeight: CGFloat = 13
 
     private lazy var spanControl: NSSegmentedControl = {
@@ -187,10 +187,10 @@ final class PowerSummaryView: NSView {
         draw(current, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 15, weight: .semibold),
              color: .labelColor)
 
-        // 细节：整机功耗，充电时带上充进电池的功率
+        // 流向条：电被分到哪去了。插电时全长是适配器额定功率，用电池时是电池放出的功率
         y -= Self.flowHeight
         if let flow {
-            draw(flow.detail, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .labelColor)
+            drawFlowBar(flow, top: y + Self.flowHeight - 6)
         }
 
         y -= Self.statsHeight
@@ -231,6 +231,51 @@ final class PowerSummaryView: NSView {
         NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]).draw(at: point)
     }
 
+    private static func color(for kind: PowerFlow.Segment.Kind, onBattery: Bool) -> NSColor {
+        switch kind {
+        case .system: return onBattery ? .systemOrange : .systemBlue
+        case .charge: return .systemGreen
+        case .spare, .loss: return NSColor.labelColor.withAlphaComponent(0.12)
+        }
+    }
+
+    private func drawFlowBar(_ flow: PowerFlow, top: CGFloat) {
+        let (total, segments) = flow.bar
+        let onBattery = flow.state == .onBattery
+        let track = NSRect(x: Self.leading, y: top - 8, width: PowerChart.size.width, height: 8)
+        let clip = NSBezierPath(roundedRect: track, xRadius: 4, yRadius: 4)
+        NSGraphicsContext.saveGraphicsState()
+        clip.addClip()
+        NSColor.labelColor.withAlphaComponent(0.08).setFill()
+        track.fill()
+        var x = track.minX
+        for segment in segments where total > 0 {
+            let width = track.width * CGFloat(segment.watts / total)
+            Self.color(for: segment.kind, onBattery: onBattery).setFill()
+            NSRect(x: x, y: track.minY, width: width, height: track.height).fill()
+            x += width
+        }
+        NSGraphicsContext.restoreGraphicsState()
+
+        // 图例：有颜色的几段靠左带圆点，余量 / 损耗这种灰色的靠右
+        let font = NSFont.systemFont(ofSize: 10)
+        let legendY = track.minY - 15
+        var legendX = track.minX
+        for segment in segments where segment.kind == .system || segment.kind == .charge {
+            let dot = NSRect(x: legendX, y: legendY + 3.5, width: 6, height: 6)
+            Self.color(for: segment.kind, onBattery: onBattery).setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            let text = "\(segment.label) \(PowerMeter.wattsText(segment.watts))"
+            draw(text, at: NSPoint(x: dot.maxX + 4, y: legendY), font: font, color: .secondaryLabelColor)
+            legendX = dot.maxX + 4 + NSAttributedString(string: text, attributes: [.font: font]).size().width + 12
+        }
+        if let rest = segments.first(where: { $0.kind == .spare || $0.kind == .loss }) {
+            let text = "\(rest.label) \(PowerMeter.wattsText(rest.watts))"
+            let width = NSAttributedString(string: text, attributes: [.font: font]).size().width
+            draw(text, at: NSPoint(x: track.maxX - width, y: legendY), font: font, color: .tertiaryLabelColor)
+        }
+    }
+
     /// 调试：把概览块画成 PNG，检查对齐和字号。-previewHours 1 / 6 / 24 调跨度
     static func renderPreview(toDirectory dir: String) {
         let hours = UserDefaults.standard.double(forKey: "previewHours")
@@ -238,8 +283,11 @@ final class PowerSummaryView: NSView {
         for (name, appearance) in [("power-summary", NSAppearance(named: .aqua)),
                                    ("power-summary-dark", NSAppearance(named: .darkAqua))] {
             NSAppearance.current = appearance
-            let view = PowerSummaryView(history: { history }, watts: { 11.6 },
-                                        flow: { PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5) })
+            let onBattery = UserDefaults.standard.bool(forKey: "previewBattery")
+            let flow = onBattery
+                ? PowerFlow(system: 9.7, adapter: nil, battery: -10.2)
+                : PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5, adapterRated: 70)
+            let view = PowerSummaryView(history: { history }, watts: { flow.system }, flow: { flow })
             view.appearance = appearance
             // 菜单里是半透明底，这里垫一层菜单底色，不然浅色文字在透明底上看不见
             let canvas = BackdropView(frame: view.bounds)
