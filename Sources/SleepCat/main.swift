@@ -600,7 +600,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for (label, minutes) in Self.presets {
             let item = makeItem(label, #selector(menuActivateTimed(_:)))
             item.tag = minutes
-            item.attributedTitle = timedTitle(label, minutes: minutes)
+            item.attributedTitle = Self.timedTitle(label, minutes: minutes)
             item.state = (blocker.isActive && activePreset == minutes) ? .on : .off
             timedMenu.addItem(item)
         }
@@ -1103,16 +1103,18 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// 档位名左对齐，结束时刻右对齐成灰色一列，扫一眼就知道到几点
-    private func timedTitle(_ label: String, minutes: Int) -> NSAttributedString {
+    static func timedTitle(_ label: String, minutes: Int, from now: Date = Date()) -> NSAttributedString {
         let para = NSMutableParagraphStyle()
         para.tabStops = [NSTextTab(textAlignment: .right, location: 170)]
         let font = NSFont.menuFont(ofSize: 0)   // 不显式给字体会退回 Helvetica 12
+        // 结束时间用等宽数字：右对齐时各行右边缘齐了，但「1」比「2」窄，左边的「至」会错开几个像素
+        let timeFont = NSFont.monospacedDigitSystemFont(ofSize: font.pointSize, weight: .regular)
         let s = NSMutableAttributedString(string: label + "\t", attributes: [
             .font: font, .paragraphStyle: para,
         ])
         s.append(NSAttributedString(
-            string: DurationPicker.prefixed("至", DurationPicker.endTimeText(minutes: minutes, showToday: false)),
-            attributes: [.font: font, .paragraphStyle: para, .foregroundColor: NSColor.secondaryLabelColor]))
+            string: DurationPicker.prefixed("至", DurationPicker.endTimeText(minutes: minutes, from: now, showToday: false)),
+            attributes: [.font: timeFont, .paragraphStyle: para, .foregroundColor: NSColor.secondaryLabelColor]))
         return s
     }
 
@@ -1485,6 +1487,15 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-align") {
         let row2 = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         row2.view = MenuRow(symbol: nil, title: "自绘 关闭", isOn: { false }, action: {})
         menu.addItem(row2)
+        // 喵住时长那种右对齐时间列：检查「至」是不是竖直对齐
+        menu.addItem(.separator())
+        let base = Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 17, hour: 1, minute: 25))!
+        for (label, minutes) in SleepCatApp.presets {
+            let item = NSMenuItem(title: label, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+            item.attributedTitle = SleepCatApp.timedTitle(label, minutes: minutes, from: base)
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
         // 带图标的两种，检查勾和图标之间的距离
         let icon = NSImage(systemSymbolName: "capsule", accessibilityDescription: nil)
         let nativeIcon = NSMenuItem(title: "原生 刘海灵动岛", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
