@@ -785,7 +785,7 @@ import AppKit
             abs((value / unit).rounded() - value / unit) < 1e-9
         }
         for (low, high) in [(8.4, 19.7), (0.6, 42.1), (9.9, 10.1), (3.2, 5.7), (12, 88), (0.6, 1.4), (0.2, 0.9)] {
-            let (bottom, top, step) = PowerChartView.axis(low: low, high: high)
+            let (bottom, top, step) = PowerAxis.axis(low: low, high: high)
             #expect(bottom <= low && top >= high, "要把 \(low)…\(high) 装进去")
             #expect(bottom >= 0, "功耗不会是负的，纵轴不该探到 0 以下")
             // 小刻度是 0.25 的倍数，大刻度是 5 的倍数
@@ -794,7 +794,7 @@ import AppKit
             #expect((top - bottom) / step <= 6, "格子太多挤成一团")
         }
         // 空闲时 1 W 上下的起伏要看得出来：不能被塞进 0～5 W 的轴里
-        let idle = PowerChartView.axis(low: 0.6, high: 1.4)
+        let idle = PowerAxis.axis(low: 0.6, high: 1.4)
         #expect(idle.step <= 0.5 && idle.top <= 2)
         // 高负载时仍是 5 的倍数
         #expect(PowerChart.axisBounds(low: 0.7, high: 15.3) == (0, 20))

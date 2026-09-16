@@ -4,7 +4,7 @@
 
 import AppKit
 
-/// 最近 24 小时的功耗采样，菜单和曲线窗口用。
+/// 最近 24 小时的功耗采样，菜单里的曲线用。
 /// 每分钟往磁盘写一条，重启、更新之后曲线还在（见 PowerLog.appendSample）
 struct PowerHistory {
     /// 留多久的数据
@@ -126,7 +126,7 @@ enum PowerChart {
         let lowest = bottom, highest = top
 
         return NSImage(size: size, flipped: false) { full in
-            // 和曲线窗口一样的圆角卡片，菜单里也有个边界
+            // 圆角边框，曲线在菜单里有个边界
             let frame = full.insetBy(dx: 0.5, dy: 0.5)
             let card = NSBezierPath(roundedRect: frame, xRadius: 6, yRadius: 6)
             NSColor.separatorColor.setStroke()

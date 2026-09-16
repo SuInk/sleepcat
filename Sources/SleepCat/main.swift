@@ -517,14 +517,6 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func openPowerWindow() {
-        PowerWindowController.shared.show { [weak self] in
-            self?.powerHistory ?? PowerHistory()
-        }
-    }
-
-
-
     private func playSound(awake: Bool) {
         guard soundEnabled else { return }
         if awake {
@@ -791,7 +783,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.title = "功耗（\(latestFlow?.headlineText ?? "整机 \(PowerMeter.wattsText(watts))")）"
         powerItem = item
 
-        // 概览面板：数据绘制时现取，菜单开着时每秒重画；下面是标准菜单项的看大图入口
+        // 概览面板：数据绘制时现取，菜单开着时每秒重画；下面是打开记录文件的入口
         let sub = NSMenu()
         let summary = NSMenuItem(title: "功耗", action: nil, keyEquivalent: "")
         let panel = PowerSummaryView(history: { [weak self] in self?.powerHistory ?? PowerHistory() },
@@ -800,11 +792,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(summary)
         powerSummary = panel
         sub.addItem(.separator())
-        let chart = NSMenuItem(title: "功耗曲线…", action: nil, keyEquivalent: "")
-        chart.view = LinkRow(symbol: symbol("chart.xyaxis.line"), title: chart.title) { [weak self] in
-            self?.openPowerWindow()
-        }
-        sub.addItem(chart)
+        let record = NSMenuItem(title: "打开记录文件…", action: nil, keyEquivalent: "")
+        record.view = LinkRow(symbol: symbol("doc.text"), title: record.title) { PowerLog.revealInFinder() }
+        sub.addItem(record)
         item.submenu = sub
         return item
     }
@@ -1509,7 +1499,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-align") {
         let rowIcon = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         rowIcon.view = MenuRow(symbol: icon, title: "自绘 刘海灵动岛", isOn: { true }, action: {})
         menu.addItem(rowIcon)
-        // 功耗子菜单：面板内容的左边界要和下面「功耗曲线…」的图标对齐
+        // 功耗子菜单：面板内容的左边界要和下面「打开记录文件…」的图标对齐
         menu.addItem(.separator())
         let panel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         let history = PowerHistory.preview(hours: 1)
@@ -1517,12 +1507,12 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-align") {
                                       flow: { PowerFlow(system: 6.1, adapter: nil, battery: -7.0) })
         menu.addItem(panel)
         menu.addItem(.separator())
-        let chart = NSMenuItem(title: "功耗曲线…", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
-        chart.image = NSImage(systemSymbolName: "chart.xyaxis.line", accessibilityDescription: nil)?
+        let chart = NSMenuItem(title: "打开记录文件…", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        chart.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .regular)).map(SleepCatApp.fitIcon)
         // 实际菜单里用的是自绘行（箭头要贴到面板右边缘）；上面的原生行留作图标位置的参照
         let link = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        link.view = LinkRow(symbol: chart.image, title: "功耗曲线…", action: {})
+        link.view = LinkRow(symbol: chart.image, title: "打开记录文件…", action: {})
         menu.addItem(chart)
         // 真实的功耗子菜单里没有带勾的行，系统可能不留勾那一列：单独弹一个一模一样的菜单再比一次
         if CommandLine.arguments.contains("--power-only") {
@@ -1578,7 +1568,6 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--dump-icons") {
     NotchIsland.renderPreview(toDirectory: dir)
     DurationPicker.renderPreview(toDirectory: dir)
     KeyboardLock.renderPreview(toDirectory: dir)
-    PowerChartView.renderPreview(toDirectory: dir)
     PowerChart.renderPreview(toDirectory: dir)
     PowerSummaryView.renderPreview(toDirectory: dir)
     exit(0)

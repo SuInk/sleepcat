@@ -56,12 +56,6 @@ enum PowerMeter {
         String(format: "%.1f W", watts)
     }
 
-    /// 「平均 · 峰值 · 最低」，菜单和曲线窗口共用同一套文案和顺序
-    static func statsText(_ history: PowerHistory) -> String? {
-        guard let average = history.average, let high = history.highest, let low = history.lowest else { return nil }
-        return "平均 \(wattsText(average)) · 峰值 \(wattsText(high)) · 最低 \(wattsText(low))"
-    }
-
     /// 电量同样带一位小数，跟功耗的写法保持一致
     static func energyText(_ wattHours: Double) -> String {
         String(format: "%.1f Wh", wattHours)
