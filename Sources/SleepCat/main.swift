@@ -792,30 +792,34 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.blocker.stop()
     }
 
-    /// 带子菜单的行：左边名字，右边灰色的当前值（喵住时长、低电量阈值、功耗读数）。
-    ///
-    /// 用右对齐制表位推到行尾。系统在子菜单箭头左边留了一大块空，最后一个字加负字距，
-    /// 让排版宽度比实际字形短一截，字就伸进那块空里、挨着箭头；菜单宽度按缩短后的算，不会被撑宽。
+    /// 带子菜单的行：左边名字，右边灰色的当前值（喵住时长、低电量阈值、功耗读数），各行的值右边缘对齐。
     /// 系统的菜单项徽标（badge）带胶囊底色，和别的行不搭，所以不用
     static func trailingTitle(_ title: String, value: String?) -> NSAttributedString {
         let font = NSFont.menuFont(ofSize: 0)
         guard let value, !value.isEmpty else { return NSAttributedString(string: title, attributes: [.font: font]) }
-        let para = NSMutableParagraphStyle()
-        para.tabStops = [NSTextTab(textAlignment: .right, location: trailingTab)]
-        let text = NSMutableAttributedString(string: title + "\t", attributes: [.font: font, .paragraphStyle: para])
-        text.append(NSAttributedString(string: value, attributes: [
+        let valueText = NSMutableAttributedString(string: value, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: font.pointSize, weight: .regular),
-            .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: para,
-        ]))
-        text.addAttribute(.kern, value: -trailingOverhang, range: NSRange(location: text.length - 1, length: 1))
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ])
+        // 右对齐制表位排出来各行会差一两个像素（系统按字框对齐，「期」「%」「W」右边留白不一样），
+        // 所以自己算：值的笔画右边缘要落在 trailingTab + trailingOverhang，反推出起点，用左对齐制表位放过去
+        let line = CTLineCreateWithAttributedString(valueText)
+        let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+        let para = NSMutableParagraphStyle()
+        para.tabStops = [NSTextTab(textAlignment: .left, location: trailingTab + trailingOverhang - ink.maxX)]
+        // 最后一个字挂负字距：只缩短排版宽度、不挪字形，菜单按缩短后的宽度算，字就伸进箭头左边那块空白里
+        valueText.addAttribute(.kern, value: -trailingOverhang,
+                               range: NSRange(location: valueText.length - 1, length: 1))
+        let text = NSMutableAttributedString(string: title + "\t", attributes: [.font: font])
+        text.append(valueText)
+        text.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: text.length))
         return text
     }
 
-    /// 制表位（从文字起点算）和伸进箭头左边空白的距离。
-    /// 制表位决定这几行至少多宽，取成和现在菜单一样宽，值的右边缘才落在最右。
-    /// 伸进去最多约 13 点，再多系统就按标题区域的右边界截住了，加了也不动；用 --snapshot-menu 截图核对
-    static let trailingTab: CGFloat = 219
-    static let trailingOverhang: CGFloat = 18
+    /// 值的右边缘（从文字起点算）= 制表位 + 伸出量。制表位决定这几行至少多宽，取成和现在菜单一样宽，值才落在最右。
+    /// 伸出量实测最多约 12 点，再大菜单会跟着变宽、字的位置不变；用 --snapshot-menu 截图核对
+    static let trailingTab: CGFloat = 218
+    static let trailingOverhang: CGFloat = 12
 
     static func thresholdText(_ threshold: Int?) -> String {
         threshold.map { "低于 \($0)%" } ?? "已关闭"
