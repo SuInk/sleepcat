@@ -16,7 +16,7 @@ final class PowerWindowController: NSObject, NSWindowDelegate {
 
     /// - Parameters:
     ///   - history: 每次刷新时现取，窗口不自己存数据
-    ///   - footnote: 底部那行（本次喵住 / 今天记录），文案和菜单里保持一致
+    ///   - footnote: 底部那行（今天用电），文案和菜单里保持一致
     func show(history: @escaping () -> (history: PowerHistory, footnote: String?)) {
         source = history
         if let window {

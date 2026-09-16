@@ -782,7 +782,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.blocker.stop()
     }
 
-    /// 功耗：标题显示当前瓦数，子菜单里是本次喵住和今天的累计
+    /// 功耗：标题显示当前瓦数，子菜单里是曲线、统计和今天的用电
     private func powerMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: "功耗", action: nil, keyEquivalent: "")
         item.image = symbol("bolt")
