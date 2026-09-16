@@ -17,13 +17,14 @@ enum PowerMeter {
         return watts
     }
 
+    /// 始终带一位小数：整机功耗就在十几二十几瓦这个量级，取整看不出变化
     static func wattsText(_ watts: Double) -> String {
-        String(format: watts < 10 ? "%.1f W" : "%.0f W", watts)
+        String(format: "%.1f W", watts)
     }
 
-    /// 电量单位：不到 10 Wh 时多给一位小数，不然一晚上下来看不出变化
+    /// 电量同样带一位小数，跟功耗的写法保持一致
     static func energyText(_ wattHours: Double) -> String {
-        String(format: wattHours < 10 ? "%.1f Wh" : "%.0f Wh", wattHours)
+        String(format: "%.1f Wh", wattHours)
     }
 }
 

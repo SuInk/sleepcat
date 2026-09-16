@@ -637,10 +637,12 @@ import AppKit
     }
 
     @Test func formatsWattsAndEnergy() {
+        // 一律带一位小数：取整的话十几瓦的变化在菜单上看不出来
         #expect(PowerMeter.wattsText(9.74) == "9.7 W")
-        #expect(PowerMeter.wattsText(23.4) == "23 W")
+        #expect(PowerMeter.wattsText(23.4) == "23.4 W")
+        #expect(PowerMeter.wattsText(100) == "100.0 W")
         #expect(PowerMeter.energyText(4.26) == "4.3 Wh")
-        #expect(PowerMeter.energyText(34.6) == "35 Wh")
+        #expect(PowerMeter.energyText(34.6) == "34.6 Wh")
     }
 }
 
