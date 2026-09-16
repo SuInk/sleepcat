@@ -18,9 +18,11 @@ final class MenuRow: NSView {
         // 符号图片自带边距，按图片左边缘摆会比原生偏右 2～3 点，下面的值已经扣掉了这部分
         static let check: CGFloat = 11      // 勾
         static let icon: CGFloat = 28       // 图标
-        static let title: CGFloat = 51.5    // 有图标时的文字
+        static let title: CGFloat = 54      // 有图标时的文字（主菜单图标统一 18 点宽，原生行的文字从这里起）
         static let titleWithoutIcon: CGFloat = 29   // 没图标时文字直接占图标列的位置，和原生一样
         static let trailing: CGFloat = 20
+        /// 行尾灰字（比如退出行的 ⌘Q）的右边缘离行右端的距离，和子菜单箭头的右边缘对齐（截图量的）
+        static let trailingText: CGFloat = 21
     }
 
     private var titleX: CGFloat { symbol == nil ? Metrics.titleWithoutIcon : Metrics.title }
@@ -29,13 +31,16 @@ final class MenuRow: NSView {
     private let titleProvider: () -> String
     private let isOnProvider: () -> Bool
     private let action: () -> Void
+    private let trailingText: String?
     private var hovering = false
 
     init(symbol: NSImage?,
          title: @escaping @autoclosure () -> String,
          isOn: @escaping () -> Bool,
+         trailing: String? = nil,
          action: @escaping () -> Void) {
         self.symbol = symbol
+        self.trailingText = trailing
         self.titleProvider = title
         self.isOnProvider = isOn
         self.action = action
@@ -92,6 +97,15 @@ final class MenuRow: NSView {
         NSAttributedString(string: title, attributes: [
             .font: NSFont.menuFont(ofSize: 0), .foregroundColor: ink,
         ]).draw(at: NSPoint(x: titleX, y: 3))
+        if let trailingText {
+            let text = NSAttributedString(string: trailingText, attributes: [
+                .font: NSFont.menuFont(ofSize: 0),
+                .foregroundColor: highlighted ? ink : NSColor.secondaryLabelColor,
+            ])
+            // 按笔画右边缘对齐，不按字框：字框右侧还有一点留白
+            let ink = CTLineGetBoundsWithOptions(CTLineCreateWithAttributedString(text), .useGlyphPathBounds)
+            text.draw(at: NSPoint(x: bounds.width - Metrics.trailingText - ink.maxX, y: 3))
+        }
     }
 
     private var isEnabledInMenu: Bool { enclosingMenuItem?.isEnabled ?? true }
