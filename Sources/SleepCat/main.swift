@@ -771,7 +771,26 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.blocker.stop()
     }
 
-    /// 功耗：标题显示当前瓦数，子菜单里是曲线、统计和今天的用电
+    /// 功耗：行尾靠右显示当前读数，子菜单里是概览面板
+    /// 读数放在行尾靠右、灰色，挨着子菜单箭头。用右对齐制表位推过去；
+    /// 系统的菜单项徽标（badge）是个胶囊底色，和别的行不搭，所以不用
+    static func setPowerReading(_ item: NSMenuItem, _ reading: String) {
+        item.title = "功耗"
+        let para = NSMutableParagraphStyle()
+        para.tabStops = [NSTextTab(textAlignment: .right, location: powerReadingTab)]
+        let font = NSFont.menuFont(ofSize: 0)
+        let title = NSMutableAttributedString(string: "功耗\t", attributes: [.font: font, .paragraphStyle: para])
+        title.append(NSAttributedString(string: reading, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: font.pointSize, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: para,
+        ]))
+        item.attributedTitle = title
+    }
+
+    /// 制表位（从文字起点算）。菜单宽度由最宽的一行决定，这个值让功耗行正好和现在的菜单一样宽，
+    /// 读数的右边缘落在菜单右侧；用 --snapshot-menu 截图核对
+    static let powerReadingTab: CGFloat = 219
+
     private func powerMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: "功耗", action: nil, keyEquivalent: "")
         item.image = symbol("bolt")
@@ -780,7 +799,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.isEnabled = false
             return item
         }
-        item.title = "功耗（\(latestFlow?.headlineText ?? "整机 \(PowerMeter.wattsText(watts))")）"
+        Self.setPowerReading(item, latestFlow?.headlineText ?? "整机 \(PowerMeter.wattsText(watts))")
         powerItem = item
 
         // 概览面板：数据绘制时现取，菜单开着时每秒重画
@@ -1124,7 +1143,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refreshOpenMenu() {
         latestFlow = PowerMeter.readFlow()
         headerItem?.attributedTitle = headerTitle()
-        if let flow = latestFlow { powerItem?.title = "功耗（\(flow.headlineText)）" }
+        if let flow = latestFlow, let powerItem { Self.setPowerReading(powerItem, flow.headlineText) }
         powerSummary?.needsDisplay = true
     }
 
