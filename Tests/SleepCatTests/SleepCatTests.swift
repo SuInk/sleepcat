@@ -719,6 +719,21 @@ import AppKit
         #expect(PowerHistory.spanText(24 * 3600) == "24 小时")
     }
 
+    @Test func loadingKeepsADayOfSamplesOnDisk() throws {
+        // 八小时的分钟采样，读回来要一条不少，文件也不能被改小
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sleepcat-day-\(UUID().uuidString)/功耗采样.csv")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let now = Date()
+        for minute in 0..<480 {
+            PowerLog.appendSample(watts: 10, at: now.addingTimeInterval(-Double(480 - minute) * 60), to: url)
+        }
+        let before = try Data(contentsOf: url)
+        let history = PowerLog.loadHistory(now: now, from: url)
+        #expect(history.samples.count == 480)
+        #expect(try Data(contentsOf: url) == before, "读的时候不该改写文件")
+    }
+
     @Test func samplesSurviveARestart() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("sleepcat-samples-\(UUID().uuidString)/功耗采样.csv")
@@ -849,26 +864,30 @@ import AppKit
     }
 
     @Test func cardsWhileCharging() {
-        let cards = PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5, adapterRated: 70).cards
+        let flow = PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5, adapterRated: 70)
+        let cards = flow.cards
         #expect(cards.map(\.title) == ["适配器", "整机", "电池"])
         #expect(cards[0].value == "49.1 W" && cards[0].suffix == "/ 70", "适配器写成「实际 / 额定」")
         #expect(cards[1].value == "11.6 W")
-        #expect(cards[2].value == "充 37.5 W" && cards[2].tone == .charge)
+        #expect(cards[2].value == "37.5 W" && cards[2].tone == .charge, "充电靠颜色区分，不再写「充」")
+        #expect(flow.badge.text == "充电中" && flow.badge.tone == .charge)
     }
 
     @Test func cardsOnBattery() {
-        let cards = PowerFlow(system: 9.7, adapter: nil, battery: -10.2).cards
+        let flow = PowerFlow(system: 4.2, adapter: nil, battery: -5.6)
+        let cards = flow.cards
         #expect(cards[0].value == "未插电" && cards[0].tone == .muted)
-        #expect(cards[1].value == "9.7 W")
-        #expect(cards[2].value == "放 10.2 W" && cards[2].tone == .discharge)
+        #expect(cards[1].value == "4.2 W")
+        #expect(cards[2].value == "5.6 W" && cards[2].tone == .discharge)
+        #expect(flow.badge.text == "电池放电" && flow.badge.tone == .discharge)
     }
 
     @Test func cardsWhenFullOrWithoutBattery() {
-        let full = PowerFlow(system: 18.6, adapter: 18.9, battery: 0).cards
-        #expect(full[0].suffix == nil, "读不到额定功率就不写")
-        #expect(full[2].value == "不充不放" && full[2].tone == .muted)
-        let desktop = PowerFlow(system: 18.6, adapter: 18.9, battery: nil).cards
-        #expect(desktop[2].value == "无电池")
+        let fullFlow = PowerFlow(system: 18.6, adapter: 18.9, battery: 0)
+        #expect(fullFlow.cards[0].suffix == nil, "读不到额定功率就不写")
+        #expect(fullFlow.cards[2].value == "不充不放" && fullFlow.cards[2].tone == .muted)
+        #expect(fullFlow.badge.text == "电源供电")
+        #expect(PowerFlow(system: 18.6, adapter: 18.9, battery: nil).cards[2].value == "无电池")
     }
 
     @Test func selfCheckCatchesReadingsThatDoNotAddUp() {

@@ -120,9 +120,21 @@ struct PowerFlow: Equatable {
         }
     }
 
+    enum Tone: Equatable { case normal, charge, discharge, plugged, muted }
+
+    /// 大数字旁边的状态胶囊
+    var badge: (text: String, tone: Tone) {
+        switch state {
+        case .onBattery: return ("电池放电", .discharge)
+        case .charging: return ("充电中", .charge)
+        case .pluggedIn: return ("电源供电", .plugged)
+        }
+    }
+
     /// 概览里的三块数字：适配器 / 整机 / 电池
     struct Card: Equatable {
-        enum Tone: Equatable { case normal, charge, discharge, muted }
+        enum Kind: Equatable { case adapter, system, battery }
+        let kind: Kind
         let title: String
         let value: String
         /// 数字后面的小字，比如适配器的额定功率「/ 70」
@@ -134,21 +146,19 @@ struct PowerFlow: Equatable {
     var cards: [Card] {
         let w = PowerMeter.wattsText
         let adapterCard: Card = adapter.map {
-            Card(title: "适配器", value: w($0), suffix: adapterRated.map { String(format: "/ %.0f", $0) })
-        } ?? Card(title: "适配器", value: "未插电", tone: .muted)
+            Card(kind: .adapter, title: "适配器", value: w($0), suffix: adapterRated.map { String(format: "/ %.0f", $0) })
+        } ?? Card(kind: .adapter, title: "适配器", value: "未插电", tone: .muted)
 
         let batteryCard: Card
         switch state {
         case .charging:
-            batteryCard = Card(title: "电池", value: "充 \(w(max(0, battery ?? 0)))", tone: .charge)
+            batteryCard = Card(kind: .battery, title: "电池", value: w(max(0, battery ?? 0)), tone: .charge)
         case .onBattery:
-            batteryCard = Card(title: "电池", value: "放 \(w(headline.watts))", tone: .discharge)
+            batteryCard = Card(kind: .battery, title: "电池", value: w(headline.watts), tone: .discharge)
         case .pluggedIn:
-            batteryCard = battery == nil
-                ? Card(title: "电池", value: "无电池", tone: .muted)
-                : Card(title: "电池", value: "不充不放", tone: .muted)
+            batteryCard = Card(kind: .battery, title: "电池", value: battery == nil ? "无电池" : "不充不放", tone: .muted)
         }
-        return [adapterCard, Card(title: "整机", value: w(system)), batteryCard]
+        return [adapterCard, Card(kind: .system, title: "整机", value: w(system)), batteryCard]
     }
 
     /// 自检：插电时适配器输入应该约等于整机 + 充电。差得太多说明某个读数不可信

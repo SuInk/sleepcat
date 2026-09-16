@@ -791,17 +791,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.title = "功耗（\(latestFlow?.headlineText ?? "整机 \(PowerMeter.wattsText(watts))")）"
         powerItem = item
 
-        // 概览块自带跨度切换，数据绘制时现取；下面只留一个看大图的入口
+        // 整块面板：数据绘制时现取，菜单开着时每秒重画；看大图的入口也在面板里
         let sub = NSMenu()
-        let summary = NSMenuItem(title: "当前 \(PowerMeter.wattsText(watts))", action: nil, keyEquivalent: "")
-        let summaryView = PowerSummaryView(history: { [weak self] in self?.powerHistory ?? PowerHistory() },
-                                           watts: { [weak self] in self?.latestWatts },
-                                           flow: { [weak self] in self?.latestFlow })
-        summary.view = summaryView
-        powerSummary = summaryView
+        let summary = NSMenuItem(title: "功耗", action: nil, keyEquivalent: "")
+        let panel = PowerSummaryView(history: { [weak self] in self?.powerHistory ?? PowerHistory() },
+                                     flow: { [weak self] in self?.latestFlow })
+        panel.onOpenChart = { [weak self] in self?.openPowerWindow() }
+        summary.view = panel
         sub.addItem(summary)
-        sub.addItem(.separator())
-        sub.addItem(makeItem("功耗曲线…", #selector(openPowerWindow), symbol: "chart.xyaxis.line"))
+        powerSummary = panel
         item.submenu = sub
         return item
     }
