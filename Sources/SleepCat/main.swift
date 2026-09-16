@@ -620,9 +620,20 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         duoItem.toolTip = "鼠标悬停刘海展开状态胶囊，点按可切换"
         menu.addItem(duoItem)
 
-        let blurItem = makeItem("合盖毛玻璃", #selector(toggleDuoBlurSetting), symbol: "camera.filters")
+        let blurItem = makeItem("合盖折叠效果", #selector(toggleDuoBlurSetting), symbol: "camera.filters")
+        blurItem.toolTip = "合盖时画面停在原处，屏幕从画面里转过去，远边渐渐糊掉、暗下去"
         if duoBlur != nil {
             blurItem.state = duoBlurEnabled ? .on : .off
+            // 没有屏幕录制权限只能退回毛玻璃，给个一步到位的入口
+            if duoBlurEnabled, duoBlur?.needsScreenRecording == true {
+                let sub = NSMenu()
+                let why = NSMenuItem(title: "现在是简化效果：缺屏幕录制权限", action: nil, keyEquivalent: "")
+                why.isEnabled = false
+                sub.addItem(why)
+                sub.addItem(.separator())
+                sub.addItem(makeItem("开启屏幕录制权限…", #selector(requestScreenRecording)))
+                blurItem.submenu = sub
+            }
             blurItem.toolTip = "跟随铰链角度实时模糊屏幕"
         } else {
             blurItem.action = nil
@@ -1091,6 +1102,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleSoundSetting() { soundEnabled.toggle() }
 
+    @objc private func requestScreenRecording() {
+        duoBlur?.requestScreenRecording()
+        Toast.show("授权后重新打开 SleepCat 就会用完整效果", below: statusItem?.button)
+    }
+
     @objc private func toggleDuoBlurSetting() {
         duoBlurEnabled.toggle()
         if duoBlurEnabled {
@@ -1393,6 +1409,21 @@ if let i = CommandLine.arguments.firstIndex(of: "--blur-demo") ?? CommandLine.ar
         else { blur.showDemo(progress: args.first ?? 0.7, seconds: args.count > 1 ? args[1] : 6) }
     }
     NSApplication.shared.run()
+}
+
+// 调试：./SleepCat --fold-bench [帧数] 量一帧折叠效果要多久
+if let i = CommandLine.arguments.firstIndex(of: "--fold-bench") {
+    let frames = CommandLine.arguments.count > i + 1 ? Int(CommandLine.arguments[i + 1]) ?? 60 : 60
+    let screen = NSScreen.main
+    let scale = screen?.backingScaleFactor ?? 2
+    let size = CGSize(width: (screen?.frame.width ?? 1710) * scale, height: (screen?.frame.height ?? 1112) * scale)
+    if let ms = ScreenFold.benchmark(frames: frames, pixelSize: size, scale: scale) {
+        print(String(format: "%.0f×%.0f 像素：每帧 %.1f 毫秒（%.0f fps），60 帧的预算是 16.7 毫秒",
+                     size.width, size.height, ms, 1000 / ms))
+    } else {
+        print("跑不起来：拿不到 Metal 设备")
+    }
+    exit(0)
 }
 
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出

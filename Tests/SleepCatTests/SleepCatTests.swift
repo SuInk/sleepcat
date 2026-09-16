@@ -643,3 +643,83 @@ import AppKit
         #expect(PowerMeter.energyText(34.6) == "35 Wh")
     }
 }
+
+@Suite struct FoldGeometryTests {
+    let w = 1710.0, h = 1112.0
+
+    @Test func fullyOpenIsIdentity() {
+        // 还没开始折的时候，画面必须原封不动地贴在屏幕上
+        let corners = FoldGeometry.projectedCorners(width: w, height: h, angle: FoldGeometry.startAngle)
+        #expect(abs(corners[0].x - 0) < 0.001 && abs(corners[0].y - 0) < 0.001)
+        #expect(abs(corners[3].x - w) < 0.001 && abs(corners[3].y - h) < 0.001)
+        #expect(FoldGeometry.progress(forAngle: FoldGeometry.startAngle) == 0)
+        #expect(FoldGeometry.progress(forAngle: 130) == 0)
+    }
+
+    @Test func pictureStaysPutAsTheLidCloses() {
+        // 屏幕转过去以后，画面在屏幕坐标里必须「长高」：这正是画面没跟着动的表现
+        var lastTop = h
+        for angle in stride(from: FoldGeometry.startAngle, through: 10, by: -10) {
+            let corners = FoldGeometry.projectedCorners(width: w, height: h, angle: angle)
+            #expect(corners[2].y >= lastTop - 0.001, "顶边应该越来越高，角度 \(angle)")
+            lastTop = corners[2].y
+            // 铰链边永远钉在原处
+            #expect(abs(corners[0].y) < 0.001 && abs(corners[1].y) < 0.001)
+            // 左右对称
+            #expect(abs((corners[2].x - w / 2) + (corners[3].x - w / 2)) < 0.001)
+        }
+        #expect(lastTop > h, "合到底时画面顶边应该已经超出屏幕")
+    }
+
+    @Test func profilesStaySharpAtTheHinge() {
+        #expect(FoldGeometry.blurProfile(atHeight: 0) == FoldGeometry.blurFloor)
+        #expect(FoldGeometry.blurProfile(atHeight: 1) == 1)
+        #expect(FoldGeometry.dimProfile(atHeight: 0) == 0)
+        #expect(FoldGeometry.dimProfile(atHeight: FoldGeometry.dimStart) == 0, "铰链附近不压暗")
+        #expect(abs(FoldGeometry.dimProfile(atHeight: 1) - FoldGeometry.maxDim) < 0.001)
+        let ramp = stride(from: 0.0, through: 1.0, by: 0.05).map { FoldGeometry.dimProfile(atHeight: $0) }
+        for (a, b) in zip(ramp, ramp.dropFirst()) { #expect(b >= a) }
+    }
+
+    @Test func strengthCurvesStartSlow() {
+        #expect(FoldGeometry.blurStrength(progress: 0) == 0)
+        #expect(FoldGeometry.blurStrength(progress: 1) == 1)
+        // 模糊比变暗起得晚：前半程画面先暗下去，还没糊
+        #expect(FoldGeometry.blurStrength(progress: 0.5) < FoldGeometry.dimStrength(progress: 0.5))
+    }
+}
+
+@Suite struct AngleSpringTests {
+    @Test func settlesWithoutOvershoot() {
+        var spring = AngleSpring(value: 100)
+        var maxValue = 100.0
+        for _ in 0..<120 { spring.step(target: 60, dt: 1.0 / 60); maxValue = min(maxValue, spring.value) }
+        #expect(abs(spring.value - 60) < 0.5, "两秒内要稳定到目标值")
+        #expect(maxValue >= 60 - 0.01, "临界阻尼不能过冲")
+    }
+
+    @Test func lagsAboutSeventyMilliseconds() {
+        // 传感器每 10 毫秒来一个整数角度，弹簧输出要跟得上又不抖
+        var spring = AngleSpring(value: 100)
+        for _ in 0..<6 { spring.step(target: 90, dt: 0.01) }
+        #expect(spring.value < 100 && spring.value > 90, "60 毫秒内走完大半，但没到头")
+    }
+
+    @Test func isFrameRateIndependent() {
+        func run(steps: Int) -> Double {
+            var spring = AngleSpring(value: 100)
+            for _ in 0..<steps { spring.step(target: 40, dt: 0.5 / Double(steps)) }
+            return spring.value
+        }
+        #expect(abs(run(steps: 60) - run(steps: 30)) < 2, "30 帧和 60 帧下跟随速度要一致")
+    }
+
+    @Test func resetJumpsStraightThere() {
+        var spring = AngleSpring(value: 100)
+        spring.step(target: 40, dt: 0.1)
+        spring.reset(to: 128)
+        #expect(spring.value == 128)
+        spring.step(target: 128, dt: 0.1)
+        #expect(spring.value == 128, "落定后不该再漂")
+    }
+}

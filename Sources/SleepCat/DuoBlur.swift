@@ -4,8 +4,7 @@
 
 import AppKit
 
-/// 决定这一刻该不该出模糊：跟着角度走，停在半路保持模糊，合到底也不变回清晰
-/// （和 macTilt 等同类实现一致）。
+/// 决定这一刻该不该出模糊：跟着角度走，停在半路保持模糊，合到底也不变回清晰。
 ///
 /// 唯一让开的情况：屏幕正被持续监看（远程控制、屏幕共享、录屏）——
 /// 覆盖层会盖住对方看到的画面。合着盖子远程也靠这一条，不需要再按角度判断。
@@ -34,6 +33,9 @@ final class DuoBlur {
     private var cursorHidden = false
     private var screenWatched = false
     private var lastWatchCheck = Date.distantPast
+    private let fold = ScreenFold()          // 首选：实时截屏 + 透视重投影
+    private var foldPermission = false       // 没有屏幕录制权限就退回下面的毛玻璃
+    private var spring = AngleSpring(value: 130)
 
     /// 光标由窗口服务器画在所有窗口之上，覆盖层盖不住它，只能显式隐藏。
     /// 起雾初期还留着（用户可能正在操作），糊到一半以后才收走。
@@ -92,8 +94,31 @@ final class DuoBlur {
 
     var isRunning: Bool { timer != nil }
 
+    /// 有没有拿到屏幕录制权限。没有就只能用毛玻璃，菜单里给个去授权的入口
+    var needsScreenRecording: Bool { !foldPermission }
+
+    /// 打开「系统设置 → 隐私与安全性 → 屏幕录制」
+    static func openScreenRecordingSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// 让系统弹一次授权请求（用户点菜单里的「开启…」时用）
+    func requestScreenRecording() {
+        ScreenFold.checkPermission { [weak self] granted in
+            self?.foldPermission = granted
+            if !granted { Self.openScreenRecordingSettings() }
+        }
+    }
+
     func start() {
         guard timer == nil else { return }
+        ScreenFold.checkPermission { [weak self] granted in
+            self?.foldPermission = granted
+            LidBlocker.log(granted ? "合盖折叠：有屏幕录制权限，用实时重投影"
+                                   : "合盖折叠：没有屏幕录制权限，退回毛玻璃")
+        }
         schedule(interval: 0.1)
     }
 
@@ -108,6 +133,7 @@ final class DuoBlur {
     func stop() {
         timer?.invalidate()
         timer = nil
+        fold.stop()
         currentProgress = 0
         setCursorHidden(false)
         window?.orderOut(nil)
@@ -134,9 +160,10 @@ final class DuoBlur {
         let dt = now0.timeIntervalSince(lastTick)
         lastTick = now0
 
-        // 半秒查一次就够：远程连上到画面传过去本来就有延迟
+        // 半秒查一次就够：远程连上到画面传过去本来就有延迟。
+        // 自己在抓屏时不查：我们自己就会被算成「有人在看屏幕」，查了会把自己关掉
         let now = Date()
-        if now.timeIntervalSince(lastWatchCheck) >= 0.5 {
+        if !fold.isRunning, now.timeIntervalSince(lastWatchCheck) >= 0.5 {
             lastWatchCheck = now
             let watched = ScreenWatch.isScreenWatched()
             if watched != screenWatched {
@@ -152,21 +179,71 @@ final class DuoBlur {
             return
         }
 
-        let target = Self.progress(forAngle: angle)
-        currentProgress = Self.smoothed(current: currentProgress, target: target, dt: dt)
+        // 传感器给的是整度，用临界阻尼弹簧磨成连续值；没在折的时候直接跟上，免得下次从残值爬
+        let raw = FoldGeometry.progress(forAngle: angle)
+        if raw <= 0, currentProgress <= 0 { spring.reset(to: angle) } else { spring.step(target: angle, dt: dt) }
+        currentProgress = FoldGeometry.progress(forAngle: spring.value)
+
         // 盖子不动时不用一直 60 帧跑着
         let wanted = Self.pollInterval(progress: currentProgress, angle: angle)
         if let timer, abs(timer.timeInterval - wanted) > 0.001 { schedule(interval: wanted) }
 
-        if target == 0 && currentProgress < 0.01 {
+        // 预热：快到起始角度就开始抓屏，真折下去第一帧就有画面，不会闪一下黑
+        if foldPermission, !fold.isRunning, angle <= FoldGeometry.startAngle + 12 { startFold() }
+
+        if raw == 0 && currentProgress < 0.01 {
             hideNow()
             return
         }
         setCursorHidden(Self.shouldHideCursor(progress: currentProgress))
         if window == nil { window = makeWindow() }
         guard let w = window else { return }
-        if !w.isVisible { w.orderFrontRegardless() }
-        render(progress: currentProgress)
+        let drawn = renderFrame(angle: spring.value)
+        // 第一帧还没到之前别把窗口放出来，否则是一块黑屏
+        if drawn, !w.isVisible { w.orderFrontRegardless() }
+    }
+
+    private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
+    /// 开始抓屏。必须先有覆盖窗口，才能把它从捕获里排除掉（否则自己拍自己，套娃）
+    private func startFold() {
+        guard let screen = Self.builtInScreen, let display = Self.displayID(of: screen) else { return }
+        if window == nil { window = makeWindow() }
+        fold.start(display: display, excluding: window) { [weak self] ok in
+            guard let self else { return }
+            if !ok {
+                self.foldPermission = false   // 权限没了或者被拒，这一轮就用毛玻璃
+                self.rebuildWindowForFallback()
+            }
+        }
+    }
+
+    /// 权限掉了：把 Metal 那块窗口换成毛玻璃那套
+    private func rebuildWindowForFallback() {
+        let wasVisible = window?.isVisible ?? false
+        window?.orderOut(nil)
+        window = nil
+        bands = []
+        frostLayer = nil
+        voidLayer = nil
+        guard wasVisible, let w = makeWindow() else { return }
+        window = w
+        w.orderFrontRegardless()
+    }
+
+    /// 画一帧：优先走实时重投影，没有画面时退回毛玻璃。返回这一帧有没有真的画上去
+    @discardableResult
+    private func renderFrame(angle: Double) -> Bool {
+        if fold.isRunning, let screen = Self.builtInScreen {
+            let scale = screen.backingScaleFactor
+            let size = CGSize(width: screen.frame.width * scale, height: screen.frame.height * scale)
+            if fold.render(angle: angle, pixelSize: size, scale: scale) { return true }
+            return false   // 流刚起来还没出帧
+        }
+        render(progress: FoldGeometry.progress(forAngle: angle))
+        return true
     }
 
     /// 把这一刻的进度画出来。模糊半径每帧现算，底下画面在动时玻璃后面跟着动
@@ -192,6 +269,7 @@ final class DuoBlur {
 
     /// 撤掉覆盖层并释放窗口：下次出现时重新绑定当前的内建屏幕（显示器可能插拔过）
     private func hideNow() {
+        fold.stop()
         currentProgress = 0
         setCursorHidden(false)
         window?.orderOut(nil)
@@ -201,34 +279,40 @@ final class DuoBlur {
         bands = []
     }
 
-    /// 调试：不接传感器，直接按给定进度把毛玻璃显示若干秒（./SleepCat --blur-demo 0.6 8）
+    /// 调试：不接传感器，按给定进度显示若干秒（./SleepCat --blur-demo 0.6 8）
     func showDemo(progress: Double, seconds: TimeInterval) {
-        guard let w = window ?? makeWindow() else { return }
-        window = w
-        w.orderFrontRegardless()
-        render(progress: progress)
-        Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
-            self?.hideNow()
-            exit(0)
-        }
+        let angle = FoldGeometry.startAngle * (1 - min(1, max(0, progress)))
+        runDemo(seconds: seconds) { _ in angle }
     }
 
     /// 调试：模拟合盖，从全开扫到合死再扫回来（./SleepCat --blur-sweep）
     func showSweep(seconds: TimeInterval) {
-        guard let w = window ?? makeWindow() else { return }
-        window = w
-        w.orderFrontRegardless()
-        let start = Date()
-        let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
-            let elapsed = Date().timeIntervalSince(start)
-            guard elapsed < seconds else {
-                timer.invalidate(); self?.hideNow(); exit(0)
-            }
-            // 三角波：合上去再打开
-            let phase = elapsed / seconds * 2
-            self?.render(progress: phase <= 1 ? phase : 2 - phase)
+        runDemo(seconds: seconds) { elapsed in
+            let phase = elapsed / seconds * 2                    // 三角波：合上去再打开
+            return FoldGeometry.startAngle * (1 - (phase <= 1 ? phase : 2 - phase))
         }
-        RunLoop.main.add(t, forMode: .common)
+    }
+
+    /// 演示的公共部分：有权限就先把抓屏开起来，再按给定的角度曲线逐帧画
+    private func runDemo(seconds: TimeInterval, angle: @escaping (TimeInterval) -> Double) {
+        ScreenFold.checkPermission { [weak self] granted in
+            guard let self else { return }
+            self.foldPermission = granted
+            print(granted ? "有屏幕录制权限：实时重投影" : "没有屏幕录制权限：退回毛玻璃（在系统设置里授权后效果更好）")
+            guard let w = self.window ?? self.makeWindow() else { exit(1) }
+            self.window = w
+            if granted { self.startFold() }
+            let start = Date()
+            let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+                guard let self else { return }
+                let elapsed = Date().timeIntervalSince(start)
+                guard elapsed < seconds else {
+                    timer.invalidate(); self.hideNow(); exit(0)
+                }
+                if self.renderFrame(angle: angle(elapsed)), !w.isVisible { w.orderFrontRegardless() }
+            }
+            RunLoop.main.add(t, forMode: .common)
+        }
     }
 
     // MARK: - 覆盖层
@@ -275,6 +359,15 @@ final class DuoBlur {
         let root = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
         root.wantsLayer = true
         root.autoresizingMask = [.width, .height]
+
+        // 有屏幕录制权限：整块交给实时重投影的 Metal 层，下面那套毛玻璃就不建了
+        if foldPermission, fold.isAvailable {
+            fold.layer.frame = root.bounds
+            fold.layer.contentsScale = screen.backingScaleFactor
+            root.layer?.addSublayer(fold.layer)
+            w.contentView = root
+            return w
+        }
 
         // 渐进毛玻璃：每层一个高斯背景滤镜 + 渐变遮罩，越靠屏幕上方（离铰链越远）叠得越厚。
         // 背景滤镜作用在窗口后面的画面上，由系统每帧合成，所以底下的画面在动，玻璃后面也在动。
