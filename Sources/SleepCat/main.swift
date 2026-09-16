@@ -5,6 +5,7 @@
 import AppKit
 import IOKit.pwr_mgt
 import UserNotifications
+import ScreenCaptureKit
 
 // MARK: - 电源断言管理（真正"喵住"Mac 的部分）
 
@@ -1204,8 +1205,37 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleSoundSetting() { soundEnabled.toggle() }
 
     @objc private func requestScreenRecording() {
-        duoBlur?.requestScreenRecording()
-        Toast.show("授权后重新打开 SleepCat 就会用完整效果", below: statusItem?.button)
+        guard let duoBlur else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        duoBlur.requestScreenRecording { [weak self] granted in
+            guard let self else { return }
+            if granted {
+                Toast.show("授权好了，重新打开 SleepCat 就会用完整效果", below: self.statusItem?.button)
+                return
+            }
+            // 系统已经记成拒绝，不会再弹框了：要么去设置里开，要么先清掉那条记录
+            let alert = NSAlert()
+            alert.messageText = "系统里已经记着「不允许」"
+            alert.informativeText = """
+                合盖折叠要读屏幕上的画面，所以需要屏幕录制权限。
+
+                之前这个请求被拒绝过（多半是授权框没点就消失了），macOS 就不会再弹框了。                如果「系统设置 › 隐私与安全性 › 屏幕录制」里根本找不到 SleepCat，                在终端运行下面这行清掉记录，再重新打开 SleepCat 就会重新弹框：
+
+                \(DuoBlur.resetPermissionCommand)
+                """
+            alert.addButton(withTitle: "复制这行命令")
+            alert.addButton(withTitle: "打开系统设置")
+            alert.addButton(withTitle: "以后再说")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                self.copyToPasteboard(DuoBlur.resetPermissionCommand)
+                Toast.show("已复制，粘贴到终端运行后重开 SleepCat", below: self.statusItem?.button)
+            case .alertSecondButtonReturn:
+                DuoBlur.openScreenRecordingSettings()
+            default:
+                break
+            }
+        }
     }
 
     @objc private func toggleDuoBlurSetting() {
@@ -1524,6 +1554,23 @@ if let i = CommandLine.arguments.firstIndex(of: "--fold-bench") {
     } else {
         print("跑不起来：拿不到 Metal 设备")
     }
+    exit(0)
+}
+
+// 调试：./SleepCat --screen-permission 查屏幕录制权限的真实状态
+if CommandLine.arguments.contains("--screen-permission") {
+    print("CGPreflightScreenCaptureAccess：\(CGPreflightScreenCaptureAccess() ? "有权限" : "没有权限")")
+    let sema = DispatchSemaphore(value: 0)
+    SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
+        if let content {
+            print("SCShareableContent：拿到了，\(content.displays.count) 个屏幕、\(content.windows.count) 个窗口")
+        } else {
+            let ns = error as NSError?
+            print("SCShareableContent：失败 domain=\(ns?.domain ?? "?") code=\(ns?.code ?? 0) \(ns?.localizedDescription ?? "")")
+        }
+        sema.signal()
+    }
+    _ = sema.wait(timeout: .now() + 10)
     exit(0)
 }
 

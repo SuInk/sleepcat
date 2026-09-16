@@ -45,11 +45,24 @@ final class ScreenFold: NSObject, SCStreamOutput {
 
     // MARK: 截屏
 
-    /// 有没有屏幕录制权限。没授权时系统会在这里弹一次授权请求
-    static func checkPermission(_ done: @escaping (Bool) -> Void) {
-        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, _ in
-            DispatchQueue.main.async { done(content != nil) }
+    /// 有没有屏幕录制权限。只查不问，不会弹框、也不会留下拒绝记录
+    static func hasPermission() -> Bool { CGPreflightScreenCaptureAccess() }
+
+    /// 主动申请一次。
+    /// 只有系统里还没有记录时才会弹框；已经记成「拒绝」的话直接返回 false，
+    /// 这时候只能去系统设置里开，或者先 `tccutil reset ScreenCapture cn.suink.sleepcat` 清掉记录
+    static func requestPermission(_ done: @escaping (Bool) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let granted = CGRequestScreenCaptureAccess()
+            LidBlocker.log("合盖折叠：申请屏幕录制权限 → \(granted ? "已授权" : "未授权")")
+            DispatchQueue.main.async { done(granted) }
         }
+    }
+
+    /// 有没有屏幕录制权限（异步形式，接口保持不变）
+    static func checkPermission(_ done: @escaping (Bool) -> Void) {
+        let granted = hasPermission()
+        DispatchQueue.main.async { done(granted) }
     }
 
     /// 开始捕获内建屏幕。`excluding` 是我们自己的覆盖窗口，必须排除掉，否则会自己拍自己

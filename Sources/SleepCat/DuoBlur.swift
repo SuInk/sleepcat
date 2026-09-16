@@ -130,12 +130,18 @@ final class DuoBlur {
         }
     }
 
-    /// 让系统弹一次授权请求（用户点菜单里的「开启…」时用）
-    func requestScreenRecording() {
-        ScreenFold.checkPermission { [weak self] granted in
+    /// 让系统弹一次授权请求（用户点菜单里的「开启…」时用）。
+    /// 返回 false 表示系统里已经记成拒绝，弹不出框了，得由调用方引导用户
+    func requestScreenRecording(_ done: @escaping (Bool) -> Void) {
+        ScreenFold.requestPermission { [weak self] granted in
             self?.foldPermission = granted
-            if !granted { Self.openScreenRecordingSettings() }
+            done(granted)
         }
+    }
+
+    /// 清掉那条拒绝记录的命令，清完重开应用就会重新弹框
+    static var resetPermissionCommand: String {
+        "tccutil reset ScreenCapture \(Bundle.main.bundleIdentifier ?? "cn.suink.sleepcat")"
     }
 
     func start() {
