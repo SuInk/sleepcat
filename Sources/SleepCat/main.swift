@@ -790,7 +790,6 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return item
         }
         item.title = "功耗（\(PowerMeter.wattsText(watts))）"
-        item.toolTip = "整机功耗，读自系统管理控制器（SMC）"
 
         // 概览：当前读数 + 统计 + 曲线，一块自绘，左边界和下面的操作行对齐
         let sub = NSMenu()
