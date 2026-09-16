@@ -31,6 +31,24 @@ final class BatteryMonitor {
         return nil
     }
 
+    /// 用电池时的放电功率（瓦）：电压 × 电流，读的是 AppleSmartBattery 注册表。
+    /// 只在放电时有意义——插着电源时这里量的是充电电流，不是整机功耗
+    static func dischargeWatts() -> Double? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        func number(_ key: String) -> Double? {
+            guard let value = IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? NSNumber else { return nil }
+            return value.doubleValue
+        }
+        // Amperage 是有符号的，放电时为负，取出来是 2 的补码
+        guard let millivolts = number("Voltage"), var milliamps = number("Amperage") else { return nil }
+        if milliamps > Double(UInt32.max) { milliamps -= Double(UInt64(1) << 64) }
+        guard milliamps < 0 else { return nil }
+        return millivolts * -milliamps / 1_000_000
+    }
+
     func start() {
         guard source == nil else { return }
         let me = Unmanaged.passUnretained(self).toOpaque()

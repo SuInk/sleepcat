@@ -514,3 +514,92 @@ import AppKit
         #expect(!b.isActive)
     }
 }
+
+@Suite struct PowerTests {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func integratesWattsIntoWattHours() {
+        // 恒定 10 W 跑一小时就是 10 Wh
+        var session = PowerSession(watts: 10, at: start)
+        for minute in 1...60 {
+            session.add(watts: 10, at: start.addingTimeInterval(TimeInterval(minute * 60)))
+        }
+        #expect(abs(session.energyWattHours - 10) < 0.01)
+        #expect(abs(session.averageWatts - 10) < 0.01)
+        #expect(session.peakWatts == 10)
+    }
+
+    @Test func averagesAcrossChangingLoad() {
+        // 半小时 20 W + 半小时 4 W = 12 Wh，平均 12 W（按真实的采样节奏，一分钟一个点）
+        var session = PowerSession(watts: 20, at: start)
+        for minute in 1...60 {
+            session.add(watts: minute <= 30 ? 20 : 4, at: start.addingTimeInterval(TimeInterval(minute * 60)))
+        }
+        // 功率骤降的那一分钟按梯形算，会比理论值多一点点（12.13 Wh）
+        #expect(abs(session.energyWattHours - 12) < 0.2)
+        #expect(abs(session.averageWatts - 12) < 0.2)
+        #expect(session.peakWatts == 20)
+    }
+
+    @Test func skipsLongGaps() {
+        // 合盖睡过去几小时后才有下一个采样：这段空档不能按最后的功率算进去
+        var session = PowerSession(watts: 10, at: start)
+        session.add(watts: 10, at: start.addingTimeInterval(4 * 3600))
+        #expect(session.energyWattHours == 0)
+    }
+
+    @Test func csvLineMatchesTheHeader() {
+        var session = PowerSession(watts: 10, at: start)
+        for minute in 1...60 {
+            session.add(watts: 10, at: start.addingTimeInterval(TimeInterval(minute * 60)))
+        }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        f.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        let cells = session.csvLine(formatter: f).split(separator: ",", omittingEmptySubsequences: false)
+        #expect(cells.count == PowerLog.header.split(separator: ",").count)
+        #expect(cells[2] == "60")            // 时长分钟
+        #expect(cells[3] == "10.00")         // 用电 Wh
+    }
+
+    @Test func sumsTodayFromTheLog() {
+        let csv = """
+        \(PowerLog.header)
+        2026-09-16 01:00,2026-09-16 02:00,60,10.00,10.0,22.0,360
+        2026-09-16 09:00,2026-09-16 09:30,30,4.50,9.0,15.0,180
+        2026-09-15 23:00,2026-09-15 23:30,30,3.00,6.0,11.0,180
+        """
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let day = cal.date(from: DateComponents(year: 2026, month: 9, day: 16, hour: 12))!
+        let total = PowerLog.sumWattHours(inCSV: csv, on: day, calendar: cal)
+        #expect(total.map { abs($0 - 14.5) < 0.001 } == true)
+        #expect(PowerLog.sumWattHours(inCSV: PowerLog.header, on: day, calendar: cal) == nil)
+    }
+
+    @Test func appendsToTheLogFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sleepcat-power-\(UUID().uuidString)/功耗记录.csv")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        var session = PowerSession(watts: 10, at: start)
+        for minute in 1...60 { session.add(watts: 10, at: start.addingTimeInterval(TimeInterval(minute * 60))) }
+        PowerLog.append(session, to: url)
+        PowerLog.append(session, to: url)
+
+        let data = try Data(contentsOf: url)
+        let text = try #require(String(data: data, encoding: .utf8))
+        let lines = text.split(separator: "\n")
+        #expect(Array(data.prefix(3)) == [0xEF, 0xBB, 0xBF], "带 BOM，Excel 打开中文表头才不乱码")
+        #expect(lines.count == 3, "表头只写一次，两次记录各占一行")
+        #expect(lines[0].hasSuffix(PowerLog.header))
+        #expect(lines[1] == lines[2])
+    }
+
+    @Test func formatsWattsAndEnergy() {
+        #expect(PowerMeter.wattsText(9.74) == "9.7 W")
+        #expect(PowerMeter.wattsText(23.4) == "23 W")
+        #expect(PowerMeter.energyText(4.26) == "4.3 Wh")
+        #expect(PowerMeter.energyText(34.6) == "35 Wh")
+    }
+}

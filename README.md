@@ -42,6 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/SuInk/sleepcat/main/install.sh | ba
   - 🔋 **低电量自动暂停**：用电池时电量低于 20%（可改 10% / 30% / 关闭）持续 1 分钟，就暂停喵住、恢复合盖休眠，避免塞进包里把电耗光；**插上电源会自动恢复**（定时的会接着剩余时间）。插着电源不会暂停，充电器一时带不动、短暂切到电池几秒也不会误停。电量已经很低时手动开启喵住，这一轮不会被暂停。暂停和恢复时会发系统通知（第一次会请求通知权限；关掉了的话，菜单「低电量自动暂停」里有入口打开）
   - 🔄 **检查更新**：菜单里手动检查，默认每天自动查一次（发现新版本弹个提示，可在检查更新的弹窗里关掉）；用 Homebrew 装的会给出 `brew upgrade` 命令
   - 💌 **推荐给朋友**：一键复制推荐语和链接（发微信 / QQ）、复制一行 Homebrew 安装命令，或调出系统分享面板
+  - ⚡️ **功耗显示和记录**：菜单里实时显示整机功耗（读 SMC 的 PSTR，插电和用电池都准），喵住期间还会统计这一次用了多少电；结束时往 `~/Library/Application Support/SleepCat/功耗记录.csv` 记一行（时长、用电量、平均和峰值功耗），用表格软件能直接打开。可以关掉
   - ⌨️ **清洁键盘**：暂时禁用所有按键（含亮度音量等功能键），屏幕中央弹出面板，点「清洁完成」恢复。需要「辅助功能」权限
   - 🔒 **合盖也不休眠**：用 `pmset disablesleep` 挡住合盖强制休眠
   - 同时保持屏幕常亮（可选，默认只防系统休眠）
@@ -178,6 +179,7 @@ brew uninstall --zap suink/tap/sleepcat    # 连同设置、日志和合盖免�
    ```sh
    defaults delete cn.suink.sleepcat
    rm -f ~/Library/Logs/SleepCat.log
+   rm -rf ~/Library/Application\ Support/SleepCat   # 功耗记录
    ```
 
 4. 如果授权过「清洁键盘」，可以去「系统设置 › 隐私与安全性 › 辅助功能」里把 SleepCat 移除
