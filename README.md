@@ -203,7 +203,7 @@ brew uninstall --zap suink/tap/sleepcat    # 连同设置、日志和合盖免�
 ## 系统要求
 
 - macOS 13 Ventura 及以上，Apple Silicon / Intel
-- 合盖渐变模糊需要带铰链角度传感器的 MacBook，没有传感器的机型这一项会显示为不可用
+- 合盖毛玻璃需要带铰链角度传感器的 MacBook，没有传感器的机型这一项会显示为不可用
 - 刘海灵动岛在没有刘海的屏幕上会退化成屏幕顶部中央的悬停条
 
 ## License
