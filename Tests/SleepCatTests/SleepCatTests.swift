@@ -588,21 +588,6 @@ import AppKit
         #expect(cells[3] == "10.00")         // 用电 Wh
     }
 
-    @Test func sumsTodayFromTheLog() {
-        let csv = """
-        \(PowerLog.header)
-        2026-09-16 01:00,2026-09-16 02:00,60,10.00,10.0,22.0,360
-        2026-09-16 09:00,2026-09-16 09:30,30,4.50,9.0,15.0,180
-        2026-09-15 23:00,2026-09-15 23:30,30,3.00,6.0,11.0,180
-        """
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
-        let day = cal.date(from: DateComponents(year: 2026, month: 9, day: 16, hour: 12))!
-        let total = PowerLog.sumWattHours(inCSV: csv, on: day, calendar: cal)
-        #expect(total.map { abs($0 - 14.5) < 0.001 } == true)
-        #expect(PowerLog.sumWattHours(inCSV: PowerLog.header, on: day, calendar: cal) == nil)
-    }
-
     @Test func appendsToTheLogFile() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("sleepcat-power-\(UUID().uuidString)/功耗记录.csv")

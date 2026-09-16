@@ -511,14 +511,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openPowerWindow() {
         PowerWindowController.shared.show { [weak self] in
-            (self?.powerHistory ?? PowerHistory(), self?.powerFootnote())
+            self?.powerHistory ?? PowerHistory()
         }
     }
 
-    /// 今天累计用了多少电，菜单和曲线窗口用同一行文案
-    private func powerFootnote() -> String? {
-        PowerLog.todayWattHours().map { "今天用电 \(PowerMeter.energyText($0))" }
-    }
 
     @objc private func openPowerLog() {
         let url = PowerLog.fileURL
@@ -794,7 +790,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.title = "功耗（\(PowerMeter.wattsText(watts))）"
         item.toolTip = "整机功耗，读自系统管理控制器（SMC）"
 
-        // 概览：当前读数 + 统计 + 曲线 + 今天用电，一块自绘，左边界和下面的操作行对齐
+        // 概览：当前读数 + 统计 + 曲线，一块自绘，左边界和下面的操作行对齐
         let sub = NSMenu()
         let visible = powerHistory.limited(to: PowerSpan.current)
         let summary = NSMenuItem(title: "当前 \(PowerMeter.wattsText(watts))", action: nil, keyEquivalent: "")
@@ -803,7 +799,6 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             current: "当前 \(PowerMeter.wattsText(watts))",
             stats: PowerMeter.statsText(visible).map { "近 \(PowerHistory.spanText(visible.span))　\($0)" },
             chart: PowerChart.image(for: visible),
-            footnote: powerFootnote(),
             timeRange: visible.samples.first.map { (PowerAxis.timeLabel($0.time), "现在") })
         sub.addItem(summary)
 

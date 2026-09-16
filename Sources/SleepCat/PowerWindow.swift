@@ -12,12 +12,10 @@ final class PowerWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var chart: PowerChartView?
     private var timer: Timer?
-    private var source: (() -> (history: PowerHistory, footnote: String?))?
+    private var source: (() -> PowerHistory)?
 
-    /// - Parameters:
-    ///   - history: 每次刷新时现取，窗口不自己存数据
-    ///   - footnote: 底部那行（今天用电），文案和菜单里保持一致
-    func show(history: @escaping () -> (history: PowerHistory, footnote: String?)) {
+    /// - Parameter history: 每次刷新时现取，窗口不自己存数据
+    func show(history: @escaping () -> PowerHistory) {
         source = history
         if let window {
             refresh()
@@ -47,9 +45,7 @@ final class PowerWindowController: NSObject, NSWindowDelegate {
 
     private func refresh() {
         guard let source else { return }
-        let snapshot = source()
-        chart?.history = snapshot.history
-        chart?.footnote = snapshot.footnote
+        chart?.history = source()
         chart?.needsDisplay = true
     }
 
@@ -64,7 +60,6 @@ final class PowerChartView: NSView {
     var history = PowerHistory() {
         didSet { needsDisplay = true }
     }
-    var footnote: String?
     /// 切换跨度后回调，让菜单那边也跟着变
     var onSpanChange: (() -> Void)?
 
@@ -227,10 +222,6 @@ final class PowerChartView: NSView {
             let labelX = min(max(x - width / 2, plot.minX), plot.maxX - width)
             draw(text, at: NSPoint(x: labelX, y: plot.minY - 28), font: font, color: .tertiaryLabelColor)
         }
-        if let footnote {
-            draw(footnote, at: NSPoint(x: inset.left, y: 8),
-                 font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
-        }
     }
 
     private func draw(_ text: String, at point: NSPoint, font: NSFont, color: NSColor) {
@@ -252,7 +243,6 @@ final class PowerChartView: NSView {
             let view = PowerChartView(frame: NSRect(x: 0, y: 0, width: 520, height: 300))
             view.appearance = appearance
             view.history = history
-            view.footnote = "今天用电 12.4 Wh"
             view.layoutSubtreeIfNeeded()
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)

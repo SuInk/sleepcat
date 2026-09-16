@@ -159,28 +159,6 @@ enum PowerLog {
             return (time, watts)
         }
     }
-
-    /// 记录文件里今天的累计用电，菜单上显示用
-    static func todayWattHours(now: Date = Date(), calendar: Calendar = .current) -> Double? {
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
-        return sumWattHours(inCSV: text, on: now, calendar: calendar)
-    }
-
-    /// 纯函数，便于测试
-    static func sumWattHours(inCSV text: String, on day: Date, calendar: Calendar = .current) -> Double? {
-        let f = DateFormatter()
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.dateFormat = "yyyy-MM-dd"
-        let today = f.string(from: day)
-        var total: Double?
-        for line in text.split(separator: "\n").dropFirst() {
-            let cells = line.split(separator: ",", omittingEmptySubsequences: false)
-            guard cells.count >= 4, cells[0].hasPrefix(today), let wh = Double(cells[3]) else { continue }
-            total = (total ?? 0) + wh
-        }
-        return total
-    }
 }
 
 /// SMC（系统管理控制器）只读客户端。
