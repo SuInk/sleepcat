@@ -7,9 +7,9 @@ import ApplicationServices
 
 /// 清洁键盘：拦截所有键盘事件，屏幕中央浮一个面板，点按钮恢复。
 ///
-/// 做法和同类项目（macos-keyboardblocker、ShinyMac）一样：会话级最前面插一个事件拦截，
-/// 把按键、修饰键和 NX_SYSDEFINED（亮度 / 音量 / 媒体键）吞掉。需要辅助功能权限。
-/// 另外补上它们漏掉的两点：系统停用拦截时立刻补回；确认拦截真的生效了才提示已锁定。
+/// 在会话级最前面插一个事件拦截，把按键、修饰键和 NX_SYSDEFINED（亮度 / 音量 / 媒体键）
+/// 全部吞掉。需要辅助功能权限。
+/// 两个容易漏的地方：系统停用拦截时要立刻补回；确认拦截真的生效了才提示已锁定。
 final class KeyboardLock: NSObject {
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
