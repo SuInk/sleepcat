@@ -227,18 +227,6 @@ enum PowerLog {
         return dir.appendingPathComponent("功耗记录.csv")
     }
 
-    /// 在访达里选中记录文件；还没有记录时打开所在的文件夹
-    static func revealInFinder() {
-        let url = fileURL
-        if FileManager.default.fileExists(atPath: url.path) {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        } else {
-            let folder = url.deletingLastPathComponent()
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            NSWorkspace.shared.open(folder)
-        }
-    }
-
     static func append(_ session: PowerSession, to url: URL = fileURL) {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm"

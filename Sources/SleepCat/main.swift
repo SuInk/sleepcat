@@ -783,7 +783,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.title = "功耗（\(latestFlow?.headlineText ?? "整机 \(PowerMeter.wattsText(watts))")）"
         powerItem = item
 
-        // 概览面板：数据绘制时现取，菜单开着时每秒重画；下面是打开记录文件的入口
+        // 概览面板：数据绘制时现取，菜单开着时每秒重画
         let sub = NSMenu()
         let summary = NSMenuItem(title: "功耗", action: nil, keyEquivalent: "")
         let panel = PowerSummaryView(history: { [weak self] in self?.powerHistory ?? PowerHistory() },
@@ -791,10 +791,6 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         summary.view = panel
         sub.addItem(summary)
         powerSummary = panel
-        sub.addItem(.separator())
-        let record = NSMenuItem(title: "打开记录文件…", action: nil, keyEquivalent: "")
-        record.view = LinkRow(symbol: symbol("doc.text"), title: record.title) { PowerLog.revealInFinder() }
-        sub.addItem(record)
         item.submenu = sub
         return item
     }
@@ -823,7 +819,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 直接用原图会让每行文字的起点左右浮动，菜单左缘就成锯齿了。
     private static let iconCanvas = NSSize(width: 18, height: 16)
 
-    static func fitIcon(_ src: NSImage) -> NSImage {
+    private static func fitIcon(_ src: NSImage) -> NSImage {
         let out = NSImage(size: iconCanvas, flipped: false) { rect in
             let s = src.size
             guard s.width > 0, s.height > 0 else { return true }
@@ -1499,28 +1495,17 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-align") {
         let rowIcon = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         rowIcon.view = MenuRow(symbol: icon, title: "自绘 刘海灵动岛", isOn: { true }, action: {})
         menu.addItem(rowIcon)
-        // 功耗子菜单：面板内容的左边界要和下面「打开记录文件…」的图标对齐
+        // 功耗面板：左右边距要和分隔线两端对齐
         menu.addItem(.separator())
         let panel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         let history = PowerHistory.preview(hours: 1)
         panel.view = PowerSummaryView(history: { history },
                                       flow: { PowerFlow(system: 6.1, adapter: nil, battery: -7.0) })
         menu.addItem(panel)
-        menu.addItem(.separator())
-        let chart = NSMenuItem(title: "打开记录文件…", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
-        chart.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular)).map(SleepCatApp.fitIcon)
-        // 实际菜单里用的是自绘行（箭头要贴到面板右边缘）；上面的原生行留作图标位置的参照
-        let link = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        link.view = LinkRow(symbol: chart.image, title: "打开记录文件…", action: {})
-        menu.addItem(chart)
-        // 真实的功耗子菜单里没有带勾的行，系统可能不留勾那一列：单独弹一个一模一样的菜单再比一次
+        // 真实的功耗子菜单里只有这块面板：单独弹一个一模一样的菜单再看一次
         if CommandLine.arguments.contains("--power-only") {
-            [panel, chart].forEach { menu.removeItem($0) }
             menu.removeAllItems()
             menu.addItem(panel)
-            menu.addItem(.separator())
-            menu.addItem(link)
         }
         let timer = Timer(timeInterval: 0.6, repeats: false) { _ in
             for window in NSApp.windows where window.isVisible {

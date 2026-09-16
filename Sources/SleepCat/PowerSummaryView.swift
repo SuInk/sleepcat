@@ -12,8 +12,7 @@ final class PowerSummaryView: NSView {
     private let flowProvider: () -> PowerFlow?
 
     private enum Layout {
-        /// 左右边距和分隔线两端一样：这个子菜单没有带勾的行，系统不留勾那一列，
-        /// 下面「打开记录文件…」的图标就在 16 点处（--snapshot-align --power-only 量出来的）
+        /// 左右边距和菜单分隔线两端一样（--snapshot-align 量出来的）
         static let leading: CGFloat = 16
         static let width: CGFloat = 330
         /// 内容区宽度：放得下「整机功耗 · 已记录 …」加跨度切换，适配器卡片的额定功率也不会挤到标题上
