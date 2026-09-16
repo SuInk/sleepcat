@@ -124,7 +124,8 @@ final class PowerChartView: NSView {
         drawHeader()
         guard plot.width > 20, plot.height > 20 else { return }
 
-        let values = visible.curve(points: max(2, Int(plot.width / 2)))
+        let now = Date()
+        let values = visible.curve(points: max(2, Int(plot.width / 2)), now: now)
         let known = values.compactMap { $0 }
         guard values.count > 1, known.count > 1, let low = known.min(), let high = known.max() else {
             drawPlaceholder(in: plot)
@@ -135,7 +136,7 @@ final class PowerChartView: NSView {
         let (bottom, top, step) = Self.axis(low: low, high: high)
         drawGrid(in: plot, bottom: bottom, top: top, step: step)
         drawCurve(values, in: plot, bottom: bottom, top: top)
-        drawTimeAxis(in: plot)
+        drawTimeAxis(in: plot, now: now)
     }
 
     private func drawHeader() {
@@ -171,7 +172,7 @@ final class PowerChartView: NSView {
             line.line(to: NSPoint(x: plot.maxX, y: y.rounded() + 0.5))
             line.lineWidth = 1
             line.stroke()
-            draw(String(format: "%.0f W", value), at: NSPoint(x: plot.minX - 48, y: y - 6),
+            draw(PowerAxis.label(value), at: NSPoint(x: plot.minX - 50, y: y - 6),
                  font: .systemFont(ofSize: 10), color: .tertiaryLabelColor)
             value += step
         }
@@ -204,11 +205,28 @@ final class PowerChartView: NSView {
         }
     }
 
-    private func drawTimeAxis(in plot: NSRect) {
-        draw("\(PowerHistory.spanText(visible.span))前", at: NSPoint(x: plot.minX, y: plot.minY - 28),
-             font: .systemFont(ofSize: 10), color: .tertiaryLabelColor)
-        draw("现在", at: NSPoint(x: plot.maxX - 24, y: plot.minY - 28),
-             font: .systemFont(ofSize: 10), color: .tertiaryLabelColor)
+    /// 横轴：整点时间刻度 + 淡淡的竖向网格线。起点和曲线一致（第一个采样），终点是现在
+    private func drawTimeAxis(in plot: NSRect, now: Date) {
+        guard let first = visible.samples.first?.time else { return }
+        let start = max(first, now.addingTimeInterval(-PowerHistory.window))
+        let duration = now.timeIntervalSince(start)
+        guard duration > 0 else { return }
+        let font = NSFont.systemFont(ofSize: 10)
+        for tick in PowerAxis.timeTicks(from: start, to: now) {
+            let x = plot.minX + plot.width * CGFloat(tick.timeIntervalSince(start) / duration)
+            let line = NSBezierPath()
+            line.move(to: NSPoint(x: x.rounded() + 0.5, y: plot.minY))
+            line.line(to: NSPoint(x: x.rounded() + 0.5, y: plot.maxY))
+            NSColor.separatorColor.withAlphaComponent(0.18).setStroke()
+            line.lineWidth = 1
+            line.stroke()
+
+            let text = PowerAxis.timeLabel(tick)
+            let width = NSAttributedString(string: text, attributes: [.font: font]).size().width
+            // 标签居中在刻度下面，但别探出绘图区左右两边
+            let labelX = min(max(x - width / 2, plot.minX), plot.maxX - width)
+            draw(text, at: NSPoint(x: labelX, y: plot.minY - 28), font: font, color: .tertiaryLabelColor)
+        }
         if let footnote {
             draw(footnote, at: NSPoint(x: inset.left, y: 8),
                  font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
@@ -220,17 +238,10 @@ final class PowerChartView: NSView {
             .draw(at: point)
     }
 
-    /// 纵轴范围：贴着数据、刻度是 5 的倍数，至少两格，免得平稳时曲线被放大成锯齿。
+    /// 纵轴范围：规则见 PowerAxis。
     /// 纯函数，便于测试
     static func axis(low: Double, high: Double) -> (bottom: Double, top: Double, step: Double) {
-        // 刻度一律是 5 的倍数（5、10、20、25、50…），挑一个让格数不超过 5 的
-        let span = max(5, high - low)
-        let step = [5.0, 10, 20, 25, 50, 100].first { span / $0 <= 5 } ?? 100
-        let bottom = max(0, (low / step).rounded(.down) * step)
-        var top = (high / step).rounded(.up) * step
-        // 至少两格：读数平稳时别把零点几瓦的噪声放大成大起大落
-        while top - bottom < step * 2 { top += step }
-        return (bottom, top, step)
+        PowerAxis.axis(low: low, high: high)
     }
 
     /// 调试：拿一段合成数据把窗口画成 PNG，方便看排版

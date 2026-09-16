@@ -125,16 +125,19 @@ final class PowerSummaryView: NSView {
     private let stats: String?
     private let chart: NSImage?
     private let footnote: String?
+    private let timeRange: (start: String, end: String)?
 
     /// 和 MenuRow 的图标列对齐
     private static let leading: CGFloat = 30
     private static let trailing: CGFloat = 20
 
-    init(current: String, stats: String?, chart: NSImage?, footnote: String?) {
+    init(current: String, stats: String?, chart: NSImage?, footnote: String?,
+         timeRange: (start: String, end: String)? = nil) {
         self.current = current
         self.stats = stats
         self.chart = chart
         self.footnote = footnote
+        self.timeRange = timeRange
         super.init(frame: .zero)
         let chartHeight = chart?.size.height ?? 0
         // 宽度按最宽的那行算，不然统计那行会被截掉
@@ -152,6 +155,7 @@ final class PowerSummaryView: NSView {
         var height: CGFloat = 26                                  // 当前读数
         if stats != nil { height += 16 }
         if chart != nil { height += chartHeight + 8 }
+        if chart != nil, timeRange != nil { height += 13 }
         if footnote != nil { height += 16 }
         setFrameSize(NSSize(width: width, height: height + 8))
         autoresizingMask = [.width]
@@ -170,6 +174,15 @@ final class PowerSummaryView: NSView {
         if let chart {
             y -= chart.size.height + 6
             chart.draw(in: NSRect(x: Self.leading, y: y, width: chart.size.width, height: chart.size.height))
+            // 横轴：曲线下方标出起止时间
+            if let timeRange {
+                y -= 13
+                let font = NSFont.systemFont(ofSize: 9)
+                draw(timeRange.start, at: NSPoint(x: Self.leading, y: y), font: font, color: .tertiaryLabelColor)
+                let endWidth = NSAttributedString(string: timeRange.end, attributes: [.font: font]).size().width
+                draw(timeRange.end, at: NSPoint(x: Self.leading + chart.size.width - endWidth, y: y),
+                     font: font, color: .tertiaryLabelColor)
+            }
         }
         if let footnote {
             y -= 16
@@ -191,7 +204,8 @@ final class PowerSummaryView: NSView {
                 current: "当前 12.5 W",
                 stats: PowerMeter.statsText(history).map { "近 \(PowerHistory.spanText(history.span))　\($0)" },
                 chart: PowerChart.image(for: history),
-                footnote: "今天用电 12.4 Wh")
+                footnote: "今天用电 12.4 Wh",
+                timeRange: history.samples.first.map { (PowerAxis.timeLabel($0.time), "现在") })
             view.appearance = appearance
             // 菜单里是半透明底，这里垫一层菜单底色，不然浅色文字在透明底上看不见
             let canvas = BackdropView(frame: view.bounds)

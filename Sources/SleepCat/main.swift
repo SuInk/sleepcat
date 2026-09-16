@@ -803,7 +803,8 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             current: "当前 \(PowerMeter.wattsText(watts))",
             stats: PowerMeter.statsText(visible).map { "近 \(PowerHistory.spanText(visible.span))　\($0)" },
             chart: PowerChart.image(for: visible),
-            footnote: powerFootnote())
+            footnote: powerFootnote(),
+            timeRange: visible.samples.first.map { (PowerAxis.timeLabel($0.time), "现在") })
         sub.addItem(summary)
 
         sub.addItem(.separator())

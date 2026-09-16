@@ -121,7 +121,7 @@ enum PowerChart {
         let values = history.curve(points: Int(size.width / 2))
         let known = values.compactMap { $0 }
         guard values.count > 1, known.count > 1 else { return nil }
-        // 纵轴上下限取到 5 的倍数，标签才是 0 W、20 W 这种好读的数
+        // 纵轴上下限取到好读的刻度：0 W / 20 W、0.5 W / 1.5 W 这种
         let (bottom, top) = axisBounds(low: known.min() ?? 0, high: known.max() ?? 1)
         let lowest = bottom, highest = top
 
@@ -162,7 +162,7 @@ enum PowerChart {
 
             // 菜单里放不下刻度线，就把上下限标在左边，至少知道纵轴的量级
             func label(_ watts: Double, at y: CGFloat) {
-                NSAttributedString(string: String(format: "%.0f W", watts), attributes: [
+                NSAttributedString(string: PowerAxis.label(watts), attributes: [
                     .font: NSFont.systemFont(ofSize: 8),
                     .foregroundColor: NSColor.secondaryLabelColor,
                 ]).draw(at: NSPoint(x: full.minX + 4, y: y))
@@ -173,12 +173,10 @@ enum PowerChart {
         }
     }
 
-    /// 纵轴上下限：往外取到 5 的倍数，至少跨 5 瓦。纯函数，便于测试
+    /// 迷你曲线的上下限：和窗口用同一套刻度规则，只是格子少一点
     static func axisBounds(low: Double, high: Double) -> (bottom: Double, top: Double) {
-        let bottom = max(0, (low / 5).rounded(.down) * 5)
-        var top = (high / 5).rounded(.up) * 5
-        if top - bottom < 5 { top = bottom + 5 }
-        return (bottom, top)
+        let axis = PowerAxis.axis(low: low, high: high, maxTicks: 3)
+        return (axis.bottom, axis.top)
     }
 
     /// 把带空洞的曲线切成一段段连续下标。纯函数，便于测试
@@ -227,5 +225,59 @@ enum PowerSpan {
 
     static func label(for seconds: TimeInterval) -> String {
         options.first { $0.seconds == seconds }?.label ?? options[0].label
+    }
+}
+
+/// 功耗纵轴的刻度规则，菜单曲线和窗口共用。
+/// 刻度小于 5 时取 0.25 的倍数（0.25、0.5、1、2.5），5 以上取 5 的倍数（5、10、20、25、50、100）：
+/// 空闲时 1 W 上下的起伏也看得出来，高负载时数字又不会零碎
+enum PowerAxis {
+    static let steps: [Double] = [0.25, 0.5, 1, 2.5, 5, 10, 20, 25, 50, 100]
+
+    /// 纯函数，便于测试
+    static func axis(low: Double, high: Double, maxTicks: Int = 5) -> (bottom: Double, top: Double, step: Double) {
+        // 至少跨 1 瓦：读数平稳时别把零点零几瓦的噪声放大成大起大落
+        let span = max(1, high - low)
+        let step = steps.first { span / $0 <= Double(maxTicks) } ?? steps.last!
+        let bottom = max(0, (low / step).rounded(.down) * step)
+        var top = (high / step).rounded(.up) * step
+        while top - bottom < step * 2 { top += step }   // 至少两格
+        return (bottom, top, step)
+    }
+
+    /// 横轴刻度：落在整点上的时间（14:00、14:15…），间隔从下面几档里挑，保证不超过 maxTicks 个。
+    /// 纯函数，便于测试
+    static let timeSteps: [TimeInterval] = [5, 15, 30, 60, 120, 180, 240, 360].map { $0 * 60 }
+
+    static func timeTicks(from start: Date, to end: Date, maxTicks: Int = 6,
+                          calendar: Calendar = .current) -> [Date] {
+        let duration = end.timeIntervalSince(start)
+        guard duration > 0 else { return [] }
+        let step = timeSteps.first { duration / $0 <= Double(maxTicks) } ?? timeSteps.last!
+        // 按当地时间对齐到整点：从当天零点起算，往后找第一个整倍数
+        let midnight = calendar.startOfDay(for: start)
+        let offset = start.timeIntervalSince(midnight)
+        var tick = midnight.addingTimeInterval((offset / step).rounded(.up) * step)
+        var ticks: [Date] = []
+        while tick <= end {
+            ticks.append(tick)
+            tick = tick.addingTimeInterval(step)
+        }
+        return ticks
+    }
+
+    static func timeLabel(_ date: Date, calendar: Calendar = .current) -> String {
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
+    }
+
+    /// 刻度标签：整数不带小数点，0.25 这种保留到需要的位数
+    static func label(_ watts: Double) -> String {
+        if watts == watts.rounded() { return String(format: "%.0f W", watts) }
+        if (watts * 2) == (watts * 2).rounded() { return String(format: "%.1f W", watts) }
+        return String(format: "%.2f W", watts)
     }
 }

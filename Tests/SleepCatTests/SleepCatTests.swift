@@ -790,18 +790,48 @@ import AppKit
         #expect(PowerChart.image(for: history) == nil, "没数据时不该画出空图")
     }
 
-    @Test func axisUsesMultiplesOfFive() {
-        for (low, high) in [(8.4, 19.7), (0.6, 42.1), (9.9, 10.1), (3.2, 5.7), (12, 88)] {
+    @Test func axisTicksAreQuartersOrFives() {
+        func isMultiple(_ value: Double, of unit: Double) -> Bool {
+            abs((value / unit).rounded() - value / unit) < 1e-9
+        }
+        for (low, high) in [(8.4, 19.7), (0.6, 42.1), (9.9, 10.1), (3.2, 5.7), (12, 88), (0.6, 1.4), (0.2, 0.9)] {
             let (bottom, top, step) = PowerChartView.axis(low: low, high: high)
             #expect(bottom <= low && top >= high, "要把 \(low)…\(high) 装进去")
             #expect(bottom >= 0, "功耗不会是负的，纵轴不该探到 0 以下")
-            #expect(step.truncatingRemainder(dividingBy: 5) == 0, "刻度 \(step) 不是 5 的倍数")
-            #expect(bottom.truncatingRemainder(dividingBy: 5) == 0 && top.truncatingRemainder(dividingBy: 5) == 0)
+            // 小刻度是 0.25 的倍数，大刻度是 5 的倍数
+            #expect(step < 5 ? isMultiple(step, of: 0.25) : isMultiple(step, of: 5), "刻度 \(step) 不合规")
+            #expect(isMultiple(bottom, of: step) && isMultiple(top, of: step))
             #expect((top - bottom) / step <= 6, "格子太多挤成一团")
         }
-        // 菜单那条小曲线的上下限同样取到 5 的倍数
+        // 空闲时 1 W 上下的起伏要看得出来：不能被塞进 0～5 W 的轴里
+        let idle = PowerChartView.axis(low: 0.6, high: 1.4)
+        #expect(idle.step <= 0.5 && idle.top <= 2)
+        // 高负载时仍是 5 的倍数
         #expect(PowerChart.axisBounds(low: 0.7, high: 15.3) == (0, 20))
-        #expect(PowerChart.axisBounds(low: 10.1, high: 10.4) == (10, 15))
+        #expect(PowerAxis.label(0.25) == "0.25 W")
+        #expect(PowerAxis.label(1.5) == "1.5 W")
+        #expect(PowerAxis.label(20) == "20 W")
+    }
+
+    @Test func timeTicksLandOnRoundClockTimes() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let end = cal.date(from: DateComponents(year: 2026, month: 9, day: 16, hour: 20, minute: 37))!
+        let cases: [(span: TimeInterval, step: TimeInterval)] = [(3600, 900), (21600, 3600), (86400, 14400)]
+        for (span, expectedStep) in cases {
+            let start = end.addingTimeInterval(-span)
+            let ticks = PowerAxis.timeTicks(from: start, to: end, calendar: cal)
+            #expect(!ticks.isEmpty && ticks.count <= 6, "跨度 \(span) 秒给了 \(ticks.count) 个刻度")
+            #expect(ticks.allSatisfy { $0 >= start && $0 <= end }, "刻度要落在可见范围里")
+            for (a, b) in zip(ticks, ticks.dropFirst()) { #expect(b.timeIntervalSince(a) == expectedStep) }
+            // 落在整点上：分钟数是步长的整倍数
+            for tick in ticks {
+                let seconds: TimeInterval = tick.timeIntervalSince(cal.startOfDay(for: tick))
+                let remainder: TimeInterval = seconds.truncatingRemainder(dividingBy: expectedStep)
+                #expect(remainder == 0, "刻度没对齐到整点")
+            }
+        }
+        #expect(PowerAxis.timeLabel(end, calendar: cal) == "20:37")
     }
 
     @Test func curveKeepsShortSpikes() {
