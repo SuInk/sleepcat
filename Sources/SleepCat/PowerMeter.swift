@@ -34,7 +34,7 @@ enum PowerMeter {
     }
 }
 
-/// 一次喵住期间的功耗统计。按梯形法把功率积成电量
+/// 一段时间内的功耗统计（记录文件里的一行）。按梯形法把功率积成电量
 struct PowerSession {
     private(set) var startedAt: Date
     private(set) var lastAt: Date
@@ -88,7 +88,7 @@ struct PowerSession {
     private var safeEnergyWattHours: Double { energyWattHours.isFinite ? energyWattHours : 0 }
 }
 
-/// 功耗记录文件（CSV，用表格软件能直接打开）
+/// 功耗记录文件（CSV，用表格软件能直接打开）。一直记，和喵不喵住无关
 enum PowerLog {
     static let header = "开始时间,结束时间,时长分钟,用电Wh,平均W,峰值W,采样数"
 

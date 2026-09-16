@@ -105,16 +105,6 @@ import AppKit
         #expect(DuoBlur.progress(forAngle: 0) == 1)
     }
 
-    @Test func blurIsProgressiveFromHingeToTop() {
-        // 靠铰链的底部最清晰，越往上叠的模糊层越多，且单调递增
-        let samples = stride(from: 0.0, through: 1.0, by: 0.1).map { DuoBlur.blurDepth(atHeight: $0) }
-        #expect(samples.first! < 0.5, "底部应接近清晰")
-        #expect(samples.last! == Double(DuoBlur.blurBands.count), "顶部应叠满所有层")
-        for (a, b) in zip(samples, samples.dropFirst()) {
-            #expect(b >= a, "模糊强度不能出现回落")
-        }
-    }
-
     @Test func cursorOnlyHidesOnceWellIntoTheFold() {
         #expect(!DuoBlur.shouldHideCursor(progress: 0))
         #expect(!DuoBlur.shouldHideCursor(progress: 0.4), "刚起雾时用户可能还在操作")
@@ -122,45 +112,21 @@ import AppKit
         #expect(DuoBlur.shouldHideCursor(progress: 1))
     }
 
-    @Test func blurRadiusFollowsTheAngle() {
-        // 全开时滤镜要整个关掉，不然静止时也在白烧 GPU
-        for band in DuoBlur.blurBands.indices {
-            #expect(DuoBlur.blurRadius(progress: 0, band: band) == 0)
-        }
-        // 同一层：越合越糊，单调不回落
-        let ramp = stride(from: 0.0, through: 1.0, by: 0.05).map { DuoBlur.blurRadius(progress: $0, band: 0) }
-        for (a, b) in zip(ramp, ramp.dropFirst()) { #expect(b >= a) }
-        // 合到底时远边接近最大半径，铰链边仍然基本清晰——这正是「渐进」的意思
-        let top = DuoBlur.blurRadius(progress: 1, band: DuoBlur.blurBands.count - 1)
-        let hinge = DuoBlur.blurRadius(progress: 1, band: 0)
-        #expect(top > DuoBlur.maxBlurRadius * 0.7)
-        #expect(hinge < DuoBlur.maxBlurRadius * 0.2)
-        #expect(top > hinge * 4)
-        // 同一进度：越靠远边（层序号越大）越糊
-        let atHalf = DuoBlur.blurBands.indices.map { DuoBlur.blurRadius(progress: 0.5, band: $0) }
-        for (a, b) in zip(atHalf, atHalf.dropFirst()) { #expect(b >= a) }
-    }
-
-    @Test func bandsCarryTheBlurAcrossTheScreen() {
-        // 真正糊画面的是毛玻璃层：全开时一层都不出力，合到底时远边拉满、铰链边几乎不出力
-        for band in DuoBlur.blurBands.indices {
-            #expect(DuoBlur.bandOpacity(progress: 0, band: band) == 0)
-        }
-        let top = DuoBlur.bandOpacity(progress: 1, band: DuoBlur.blurBands.count - 1)
-        let hinge = DuoBlur.bandOpacity(progress: 1, band: 0)
-        #expect(top > 0.95, "远边要糊透")
-        #expect(hinge < 0.25, "铰链边要基本清晰")
-        // 每层都随合盖单调变浓
-        for band in DuoBlur.blurBands.indices {
-            let ramp = stride(from: 0.0, through: 1.0, by: 0.1).map { DuoBlur.bandOpacity(progress: $0, band: band) }
-            for (a, b) in zip(ramp, ramp.dropFirst()) { #expect(b >= a) }
-        }
-    }
-
-    @Test func dimAndPollFollowProgress() {
+    @Test func blurAndDimFollowTheAngle() {
+        // 全开时什么都不叠，合到底时糊透、压暗到位；中间单调变浓
+        #expect(DuoBlur.blurOpacity(progress: 0) == 0)
         #expect(DuoBlur.dimOpacity(progress: 0) == 0)
-        #expect(DuoBlur.dimOpacity(progress: 1) > 0.8)
-        #expect(DuoBlur.dimOpacity(progress: 0.5) < DuoBlur.dimOpacity(progress: 0.9))
+        #expect(DuoBlur.blurOpacity(progress: 1) == 1)
+        #expect(abs(DuoBlur.dimOpacity(progress: 1) - FoldGeometry.maxDim) < 0.001)
+        let blur = stride(from: 0.0, through: 1.0, by: 0.05).map { DuoBlur.blurOpacity(progress: $0) }
+        let dim = stride(from: 0.0, through: 1.0, by: 0.05).map { DuoBlur.dimOpacity(progress: $0) }
+        for (a, b) in zip(blur, blur.dropFirst()) { #expect(b >= a) }
+        for (a, b) in zip(dim, dim.dropFirst()) { #expect(b >= a) }
+        // 压暗比模糊来得早：半路时画面已经暗下去，但还没糊透
+        #expect(DuoBlur.dimOpacity(progress: 0.5) > DuoBlur.blurOpacity(progress: 0.5))
+    }
+
+    @Test func pollFollowsTheLid() {
         // 盖子摊开不动时慢慢看着，一开始合就切到 60 帧
         #expect(DuoBlur.pollInterval(progress: 0, angle: 130) == 0.1)
         #expect(DuoBlur.pollInterval(progress: 0, angle: 95) < 0.02)

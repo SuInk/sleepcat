@@ -27,7 +27,7 @@ final class DuoBlur {
     private var timer: Timer?
     private var currentProgress: Double = 0
     private var lastTick = Date()
-    private var bands: [(layer: CALayer, fallback: NSVisualEffectView)] = []
+    private var blurView: NSVisualEffectView?
     private var voidLayer: CALayer?   // 暗场：越接近合死越黑
     private var cursorHidden = false
     private var screenWatched = false
@@ -40,38 +40,15 @@ final class DuoBlur {
     /// 起雾初期还留着（用户可能正在操作），糊到一半以后才收走。
     static func shouldHideCursor(progress: Double) -> Bool { progress > 0.5 }
 
-    /// 分层模糊的遮罩区间（单位坐标，0=屏幕底部即铰链侧，1=顶部）。
-    /// 每层一个高斯背景滤镜 + 渐变遮罩，层层过渡出连续的渐进模糊
-    static let blurBands: [(start: Double, end: Double)] = [
-        (0.00, 0.28), (0.18, 0.46), (0.36, 0.64), (0.54, 0.82), (0.72, 1.00),
-    ]
-
-    /// 远边最大模糊半径（点）。铰链边几乎为 0，一路涨到这个值
-    static let maxBlurRadius: Double = 90
-
-    /// 这一刻某一层该出多少力（0…1）。
-    /// 真正把画面糊掉的是系统的毛玻璃层——背景滤镜跨窗口模糊在现在的 macOS 上基本不生效，
-    /// 所以按高度给每层配不同的不透明度：铰链边那层几乎不出力，远边那层拉满，
-    /// 叠起来就是「越往远边越糊」
-    static func bandOpacity(progress: Double, band: Int) -> Double {
-        guard progress > 0, blurBands.indices.contains(band) else { return 0 }
-        let center = (blurBands[band].start + blurBands[band].end) / 2
-        return min(1, FoldGeometry.blurStrength(progress: progress)
-            * FoldGeometry.blurProfile(atHeight: center) * 1.15)
+    /// 整屏模糊的浓度（0…1）：跟着角度走，起步慢、后半程才真糊
+    static func blurOpacity(progress: Double) -> Double {
+        min(1, FoldGeometry.blurStrength(progress: progress) * 1.1)
     }
 
-    /// 这一刻某一层该用多大的模糊半径。
-    /// 高度按 g^1.35 涨（Duo 的曲线），整体强度按 progress^1.45 涨：起步慢、后半程才真糊
-    static func blurRadius(progress: Double, band: Int) -> Double {
-        guard progress > 0, blurBands.indices.contains(band) else { return 0 }
-        let center = (blurBands[band].start + blurBands[band].end) / 2
-        return FoldGeometry.blurStrength(progress: progress)
-            * FoldGeometry.blurProfile(atHeight: center)
-            * maxBlurRadius
+    /// 压暗程度（0…1）：比模糊来得早一点，接近合死时整屏沉下去
+    static func dimOpacity(progress: Double) -> Double {
+        FoldGeometry.dimStrength(progress: progress) * FoldGeometry.maxDim
     }
-
-    /// 这一刻的压暗程度：远边先黑下去，接近合死时整屏没入黑暗
-    static func dimOpacity(progress: Double) -> Double { FoldGeometry.dimStrength(progress: progress) }
 
     /// 盖子多久没动就算停稳了
     static let idleTimeout: TimeInterval = 3
@@ -88,14 +65,6 @@ final class DuoBlur {
     static func smoothed(current: Double, target: Double, dt: TimeInterval) -> Double {
         let k = 1 - exp(-max(0, dt) / 0.06)
         return current + (target - current) * k
-    }
-
-    /// 某个高度上叠加了几层模糊（0…层数），用于验证渐进曲线
-    static func blurDepth(atHeight y: Double) -> Double {
-        blurBands.reduce(0) { depth, band in
-            let t = (y - band.start) / (band.end - band.start)
-            return depth + min(1, max(0, t))
-        }
     }
 
     init?(sensor: LidAngleSensor?) {
@@ -196,21 +165,11 @@ final class DuoBlur {
         if !w.isVisible { w.orderFrontRegardless() }
     }
 
-    /// 把这一刻的进度画出来。模糊半径每帧现算，底下画面在动时玻璃后面跟着动
+    /// 把这一刻的进度画出来：整屏一层毛玻璃 + 一层压暗，浓度跟着角度连续变化
     private func render(progress: Double) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)   // 关掉隐式动画，跟手
-        for (i, band) in bands.enumerated() {
-            let radius = Self.blurRadius(progress: progress, band: i)
-            if radius <= 0.01 {
-                band.layer.backgroundFilters = []
-            } else if let blur = CIFilter(name: "CIGaussianBlur",
-                                          parameters: [kCIInputRadiusKey: radius]) {
-                band.layer.backgroundFilters = [blur]
-            }
-            band.fallback.alphaValue = Self.bandOpacity(progress: progress, band: i)
-        }
-        // 渐隐到黑：远边先暗，接近合死时整屏没入黑暗
+        blurView?.alphaValue = Self.blurOpacity(progress: progress)
         voidLayer?.opacity = Float(Self.dimOpacity(progress: progress))
         CATransaction.commit()
     }
@@ -222,7 +181,7 @@ final class DuoBlur {
         window?.orderOut(nil)
         window = nil
         voidLayer = nil
-        bands = []
+        blurView = nil
     }
 
     /// 调试：不接传感器，按给定进度显示若干秒（./SleepCat --blur-demo 0.6 8）
@@ -284,46 +243,20 @@ final class DuoBlur {
         root.wantsLayer = true
         root.autoresizingMask = [.width, .height]
 
-        // 渐进毛玻璃：每层一个高斯背景滤镜 + 渐变遮罩，越靠屏幕上方（离铰链越远）叠得越厚。
-        // 背景滤镜作用在窗口后面的画面上，由系统每帧合成，所以底下的画面在动，玻璃后面也在动。
-        // 每层里再垫一个系统的毛玻璃视图：背景滤镜万一在某些机器上不生效，至少还有它撑住。
-        bands = []
-        for band in Self.blurBands {
-            let layerView = NSView(frame: root.bounds)
-            layerView.wantsLayer = true
-            layerView.autoresizingMask = [.width, .height]
-            guard let layer = layerView.layer else { continue }
+        // 整屏一层系统毛玻璃：真正把背后画面糊掉的就是它
+        let blur = NSVisualEffectView(frame: root.bounds)
+        blur.material = .hudWindow
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        blur.alphaValue = 0
+        blur.autoresizingMask = [.width, .height]
+        root.addSubview(blur)
+        blurView = blur
 
-            let mask = CAGradientLayer()
-            mask.frame = root.bounds
-            mask.colors = [NSColor.clear.cgColor, NSColor.black.cgColor]
-            mask.locations = [NSNumber(value: band.start), NSNumber(value: band.end)]
-            mask.startPoint = CGPoint(x: 0.5, y: 0)   // 底部＝铰链侧
-            mask.endPoint = CGPoint(x: 0.5, y: 1)     // 顶部
-            layer.mask = mask
-
-            let fallback = NSVisualEffectView(frame: root.bounds)
-            fallback.material = .hudWindow
-            fallback.blendingMode = .behindWindow
-            fallback.state = .active
-            fallback.alphaValue = 0
-            fallback.autoresizingMask = [.width, .height]
-            layerView.addSubview(fallback)
-
-            root.addSubview(layerView)
-            bands.append((layer, fallback))
-        }
-
-        // 渐隐到黑：铰链边不压暗，远边最黑，整体浓度跟着角度走
-        let void = CAGradientLayer()
+        // 压暗：整屏一层黑，浓度跟着角度走
+        let void = CALayer()
         void.frame = root.bounds
-        void.colors = [
-            NSColor.clear.cgColor,
-            NSColor.black.withAlphaComponent(CGFloat(FoldGeometry.maxDim)).cgColor,
-        ]
-        void.locations = [NSNumber(value: FoldGeometry.dimStart), 1.0]
-        void.startPoint = CGPoint(x: 0.5, y: 0)   // 底部＝铰链侧
-        void.endPoint = CGPoint(x: 0.5, y: 1)
+        void.backgroundColor = NSColor.black.cgColor
         void.opacity = 0
         root.layer?.addSublayer(void)
         voidLayer = void

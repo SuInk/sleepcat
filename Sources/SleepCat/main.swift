@@ -55,14 +55,14 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         set { UserDefaults.standard.set(newValue, forKey: "pausedForLowBattery") }
     }
     private var duoBlur: DuoBlur?
-    private var powerSession: PowerSession?   // 本次喵住的功耗统计
+    private var powerBucket: PowerSession?   // 攒够一段就写一行记录，和喵不喵住无关
     private var powerTimer: Timer?
     private var latestWatts: Double?
     private var powerHistory = PowerHistory()   // 近 24 小时的采样，菜单和窗口画曲线
     private var minuteSum = 0.0                 // 每分钟往磁盘写一条，不是每次采样都写
     private var minuteCount = 0
     private var minuteStart = Date()
-    /// 喵住结束后把这次的功耗写进 CSV 记录
+    /// 一直往 CSV 里记功耗（和喵住与否无关）
     private var powerLoggingEnabled: Bool {
         get { UserDefaults.standard.object(forKey: "powerLoggingEnabled") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "powerLoggingEnabled") }
@@ -111,7 +111,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     /// Duo 合盖模糊（铰链传感器联动），默认开启
     private var duoBlurEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: "duoBlurEnabled") as? Bool ?? true }
+        get { UserDefaults.standard.object(forKey: "duoBlurEnabled") as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: "duoBlurEnabled") }
     }
 
@@ -294,7 +294,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Toast.show("电量 \(status.percent)%，这次不会因为电量低暂停", below: statusItem?.button)
         }
         blocker.start(keepDisplayOn: keepDisplayOn)
-        beginPowerSession()
+        startPowerSampling()
         // 规则被外部删掉时补装；恢复会话发生在启动时，不在那一刻弹框打扰
         if lidBlockEnabled, resumed || ensureFreePass() {
             if let err = lidBlocker.set(true, allowPrompt: !resumed) {
@@ -346,7 +346,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 电量低：先暂停喵住，但记住它（包括定时剩余时间），电源回来自动接上
     private func pauseForLowBattery(_ status: PowerStatus) {
         blocker.stop()
-        finishPowerSession()
+        flushPowerBucket()
         restoreLidSleepIfNeeded()   // 连同合盖防护一起撤掉：合着盖子的话，Mac 会马上正常休眠
         offTimer?.invalidate()
         offTimer = nil
@@ -419,7 +419,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func deactivate() {
         blocker.stop()
-        finishPowerSession()
+        flushPowerBucket()
         restoreLidSleepIfNeeded()
         offTimer?.invalidate()
         offTimer = nil
@@ -438,7 +438,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 每 10 秒采一次：SMC 读一次不到 1 毫秒，本身的耗电可以忽略
     static let powerSampleInterval: TimeInterval = 10
 
-    /// 一直采着：菜单里的曲线要有数据，喵住期间顺带累计这一次的用电
+    /// 一直采着：菜单里的曲线要有数据，同时按段累计写进记录
     private func startPowerSampling() {
         guard powerTimer == nil else { return }
         samplePower()
@@ -462,24 +462,21 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             minuteCount = 0
             minuteStart = now
         }
-        if blocker.isActive {
-            if powerSession == nil { powerSession = PowerSession(watts: watts, at: now) }
-            else { powerSession?.add(watts: watts, at: now) }
-        }
+        if powerBucket == nil { powerBucket = PowerSession(watts: watts, at: now) }
+        else { powerBucket?.add(watts: watts, at: now) }
+        // 攒够一段就落一行：记录是连续的，不挂在喵住上
+        if let bucket = powerBucket, bucket.duration >= Self.powerRecordInterval { flushPowerBucket() }
         return watts
     }
 
-    /// 开始喵住：这一次的统计从头算，曲线不受影响
-    private func beginPowerSession() {
-        startPowerSampling()
-        if let watts = latestWatts ?? PowerMeter.read() { powerSession = PowerSession(watts: watts) }
-    }
+    /// 每段记录多长。10 分钟一行，一天 144 行，既看得出变化、文件也不大
+    static let powerRecordInterval: TimeInterval = 600
 
-    /// 喵住结束（或被低电量暂停）时收尾：太短的不记，免得记录里全是几十秒的碎片
-    private func finishPowerSession() {
-        defer { powerSession = nil }
-        guard let session = powerSession, powerLoggingEnabled, session.duration >= 60 else { return }
-        PowerLog.append(session)
+    /// 把当前这一段写进记录并重新开一段。太短的不写，免得记录里全是几十秒的碎片
+    private func flushPowerBucket() {
+        defer { powerBucket = nil }
+        guard let bucket = powerBucket, powerLoggingEnabled, bucket.duration >= 60 else { return }
+        PowerLog.append(bucket)
     }
 
     @objc private func togglePowerLogging() { powerLoggingEnabled.toggle() }
@@ -490,11 +487,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.blocker.start(keepDisplayOn: false)     // 只在这个进程里持有，退出即释放
         app.powerLoggingEnabled = log
         app.startPowerSampling()
-        guard app.powerSession != nil else { print("读不到功耗"); exit(1) }
+        guard app.powerBucket != nil else { print("读不到功耗"); exit(1) }
         Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in
-            let session = app.powerSession
+            let session = app.powerBucket
             app.blocker.stop()
-            app.finishPowerSession()
+            app.flushPowerBucket()
             if let session {
                 print("采样 \(session.samples) 次，\(Int(session.duration)) 秒，"
                       + "平均 \(PowerMeter.wattsText(session.averageWatts))，"
@@ -518,16 +515,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// 本次喵住 + 今天记录，菜单和曲线窗口用同一行文案
+    /// 今天累计用了多少电，菜单和曲线窗口用同一行文案
     private func powerFootnote() -> String? {
-        var parts: [String] = []
-        if let session = powerSession, session.duration >= 60 {
-            parts.append("本次喵住 \(PowerMeter.energyText(session.energyWattHours))")
-        }
-        if let today = PowerLog.todayWattHours() {
-            parts.append("今天记录 \(PowerMeter.energyText(today))")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        PowerLog.todayWattHours().map { "今天用电 \(PowerMeter.energyText($0))" }
     }
 
     @objc private func openPowerLog() {
@@ -801,39 +791,23 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.title = "功耗（\(PowerMeter.wattsText(watts))）"
         item.toolTip = "整机功耗，读自系统管理控制器（SMC）"
 
+        // 概览：当前读数 + 统计 + 曲线 + 今天用电，一块自绘，左边界和下面的操作行对齐
         let sub = NSMenu()
-        let nowItem = NSMenuItem(title: "当前 \(PowerMeter.wattsText(watts))", action: nil, keyEquivalent: "")
-        nowItem.isEnabled = false
-        sub.addItem(nowItem)
-
-        // 曲线：采满两个点才画得出来
         let visible = powerHistory.limited(to: PowerSpan.current)
-        if let chart = PowerChart.image(for: visible) {
-            let chartItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-            chartItem.image = chart
-            chartItem.isEnabled = false
-            sub.addItem(chartItem)
-            if let text = PowerMeter.statsText(visible) {
-                let stats = NSMenuItem(title: "近 \(PowerHistory.spanText(visible.span))　\(text)",
-                                       action: nil, keyEquivalent: "")
-                stats.isEnabled = false
-                stats.attributedTitle = NSAttributedString(string: stats.title, attributes: [
-                    .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
-                    .foregroundColor: NSColor.secondaryLabelColor,
-                ])
-                sub.addItem(stats)
-            }
-        }
-        if let footnote = powerFootnote() {
-            let footnoteItem = NSMenuItem(title: footnote, action: nil, keyEquivalent: "")
-            footnoteItem.isEnabled = false
-            sub.addItem(footnoteItem)
-        }
+        let summary = NSMenuItem(title: "当前 \(PowerMeter.wattsText(watts))", action: nil, keyEquivalent: "")
+        summary.isEnabled = false
+        summary.view = PowerSummaryView(
+            current: "当前 \(PowerMeter.wattsText(watts))",
+            stats: PowerMeter.statsText(visible).map { "近 \(PowerHistory.spanText(visible.span))　\($0)" },
+            chart: PowerChart.image(for: visible),
+            footnote: powerFootnote())
+        sub.addItem(summary)
+
         sub.addItem(.separator())
-        let logging = makeToggleItem("记录每次喵住的功耗", symbol: "square.and.pencil",
+        let logging = makeToggleItem("记录功耗到文件", symbol: "square.and.pencil",
                                      isOn: { [weak self] in self?.powerLoggingEnabled ?? true },
                                      action: { [weak self] in self?.powerLoggingEnabled.toggle() })
-        logging.toolTip = "喵住结束时往 CSV 记一行：时长、用电量、平均和峰值功耗"
+        logging.toolTip = "每 10 分钟往 CSV 记一行：时长、用电量、平均和峰值功耗；和喵不喵住无关"
         sub.addItem(logging)
         let spanRoot = makeItem("曲线跨度（\(PowerSpan.label(for: PowerSpan.current))）", #selector(noop), symbol: "clock.arrow.circlepath")
         spanRoot.action = nil
@@ -1390,7 +1364,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // 应用不在跑时没人管合盖和休眠，得把 Mac 交还给系统；但不清会话，下次打开接着喵
         blocker.stop()
-        finishPowerSession()   // 退出前把这一段的功耗记下来，重开会当成新的一次
+        flushPowerBucket()   // 退出前把没写完的那一段记下来
         restoreLidSleepIfNeeded()
         duoBlur?.stop()   // 确保光标一定还给用户
         keyboardLock.unlock()
@@ -1526,6 +1500,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--dump-icons") {
     KeyboardLock.renderPreview(toDirectory: dir)
     PowerChartView.renderPreview(toDirectory: dir)
     PowerChart.renderPreview(toDirectory: dir)
+    PowerSummaryView.renderPreview(toDirectory: dir)
     exit(0)
 }
 

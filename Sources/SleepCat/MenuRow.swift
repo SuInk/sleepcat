@@ -106,3 +106,97 @@ final class MenuRow: NSView {
     }
 
 }
+
+/// 预览用：给概览块垫一层菜单底色
+private final class BackdropView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        bounds.fill()
+    }
+}
+
+/// 功耗子菜单顶部的概览块：当前读数、统计、曲线、今天用电合在一行里自绘，
+/// 左边界和下面那些带图标的操作行对齐，不再是三段各自为政的文字
+final class PowerSummaryView: NSView {
+    private let current: String
+    private let stats: String?
+    private let chart: NSImage?
+    private let footnote: String?
+
+    /// 和 MenuRow 的图标列对齐
+    private static let leading: CGFloat = 30
+    private static let trailing: CGFloat = 20
+
+    init(current: String, stats: String?, chart: NSImage?, footnote: String?) {
+        self.current = current
+        self.stats = stats
+        self.chart = chart
+        self.footnote = footnote
+        super.init(frame: .zero)
+        let chartHeight = chart?.size.height ?? 0
+        // 宽度按最宽的那行算，不然统计那行会被截掉
+        func textWidth(_ text: String?, size: CGFloat, weight: NSFont.Weight = .regular) -> CGFloat {
+            guard let text else { return 0 }
+            return ceil(NSAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: size, weight: weight),
+            ]).size().width)
+        }
+        let widest = max(textWidth(current, size: 15, weight: .semibold),
+                         textWidth(stats, size: 11),
+                         textWidth(footnote, size: 11),
+                         chart?.size.width ?? 0)
+        let width = max(widest + Self.leading + Self.trailing, 260)
+        var height: CGFloat = 26                                  // 当前读数
+        if stats != nil { height += 16 }
+        if chart != nil { height += chartHeight + 8 }
+        if footnote != nil { height += 16 }
+        setFrameSize(NSSize(width: width, height: height + 8))
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        var y = bounds.maxY - 22
+        draw(current, at: NSPoint(x: Self.leading, y: y),
+             font: .systemFont(ofSize: 15, weight: .semibold), color: .labelColor)
+        if let stats {
+            y -= 16
+            draw(stats, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        }
+        if let chart {
+            y -= chart.size.height + 6
+            chart.draw(in: NSRect(x: Self.leading, y: y, width: chart.size.width, height: chart.size.height))
+        }
+        if let footnote {
+            y -= 16
+            draw(footnote, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        }
+    }
+
+    private func draw(_ text: String, at point: NSPoint, font: NSFont, color: NSColor) {
+        NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]).draw(at: point)
+    }
+
+    /// 调试：把概览块画成 PNG，检查对齐和字号
+    static func renderPreview(toDirectory dir: String) {
+        let history = PowerHistory.preview(hours: 6)
+        for (name, appearance) in [("power-summary", NSAppearance(named: .aqua)),
+                                   ("power-summary-dark", NSAppearance(named: .darkAqua))] {
+            NSAppearance.current = appearance
+            let view = PowerSummaryView(
+                current: "当前 12.5 W",
+                stats: PowerMeter.statsText(history).map { "近 \(PowerHistory.spanText(history.span))　\($0)" },
+                chart: PowerChart.image(for: history),
+                footnote: "本次喵住 1.6 Wh · 今天记录 12.4 Wh")
+            view.appearance = appearance
+            // 菜单里是半透明底，这里垫一层菜单底色，不然浅色文字在透明底上看不见
+            let canvas = BackdropView(frame: view.bounds)
+            canvas.appearance = appearance
+            canvas.addSubview(view)
+            guard let rep = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) else { continue }
+            canvas.cacheDisplay(in: canvas.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?
+                .write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
+        }
+    }
+}
