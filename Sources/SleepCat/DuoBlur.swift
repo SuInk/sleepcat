@@ -14,6 +14,27 @@ enum BlurGate {
     }
 }
 
+/// 什么时候该开着屏幕捕获。
+///
+/// 抓屏期间系统会亮起录屏指示灯，所以不能「快到角度就一直开着」：
+/// 盖子停在 100°～112° 之间是很常见的姿势，那样指示灯就长亮了。
+/// 规则：盖子正在动、或者已经在折，才抓；停稳一会儿或者重新摊开就撤。
+/// 纯函数，便于测试
+enum FoldArming {
+    /// 盖子多久没动就算停稳了
+    static let idleTimeout: TimeInterval = 3
+    /// 比开始折叠的角度再多留一点，用来预热
+    static let armMargin: Double = 12
+    /// 撤掉时要多张开一点才算数，免得在边界上反复开关
+    static let disarmMargin: Double = 20
+
+    static func shouldCapture(angle: Double, progress: Double, stillFor: TimeInterval, capturing: Bool) -> Bool {
+        if progress > 0.01 { return true }                                  // 正在折，必须有画面
+        if angle > FoldGeometry.startAngle + (capturing ? disarmMargin : armMargin) { return false }
+        return stillFor < idleTimeout                                       // 还在动：预热着
+    }
+}
+
 /// Duo 合盖模糊：铰链角度传感器驱动的全屏渐进毛玻璃（iPhone Duo 折叠时的液态玻璃效果）。
 /// 盖子合到 100° 开始起雾，40° 模糊拉满；重新打开则反向消散。只出现在内建屏幕上。
 ///
@@ -35,6 +56,8 @@ final class DuoBlur {
     private var lastWatchCheck = Date.distantPast
     private let fold = ScreenFold()          // 首选：实时截屏 + 透视重投影
     private var foldPermission = false       // 没有屏幕录制权限就退回下面的毛玻璃
+    private var lastAngle: Double?
+    private var lastMotion = Date.distantPast
     private var spring = AngleSpring(value: 130)
 
     /// 光标由窗口服务器画在所有窗口之上，覆盖层盖不住它，只能显式隐藏。
@@ -62,9 +85,12 @@ final class DuoBlur {
     /// 白釉浓度：磨砂玻璃的乳白感，比模糊来得稍晚
     static func frostOpacity(progress: Double) -> Double { min(1, max(0, progress * progress * 0.85)) }
 
-    /// 传感器轮询间隔：盖子没动时慢慢看着，一开始合就切到 60 帧跟手
-    static func pollInterval(progress: Double, angle: Double) -> TimeInterval {
-        progress > 0 || angle < 110 ? 1.0 / 60 : 0.1
+    /// 传感器轮询间隔：盖子没动时慢慢看着，一开始合就切到 60 帧跟手。
+    /// 停稳了就降频——不然半开着放一下午，会一直按 60 帧空转
+    static func pollInterval(progress: Double, angle: Double, stillFor: TimeInterval = 0) -> TimeInterval {
+        if progress > 0 { return 1.0 / 60 }
+        if stillFor > FoldArming.idleTimeout { return 0.1 }
+        return angle < 110 ? 1.0 / 60 : 0.1
     }
 
     /// 平滑跟随（按时间算，帧率变了跟随速度不变）。time constant 约 60 毫秒
@@ -184,15 +210,26 @@ final class DuoBlur {
         if raw <= 0, currentProgress <= 0 { spring.reset(to: angle) } else { spring.step(target: angle, dt: dt) }
         currentProgress = FoldGeometry.progress(forAngle: spring.value)
 
+        // 盖子在动才抓屏：录屏指示灯只在真要用的时候亮
+        if let lastAngle, abs(angle - lastAngle) > 0.5 { lastMotion = now }
+        if lastAngle == nil { lastMotion = now }
+        lastAngle = angle
+        let stillFor = now.timeIntervalSince(lastMotion)
+
         // 盖子不动时不用一直 60 帧跑着
-        let wanted = Self.pollInterval(progress: currentProgress, angle: angle)
+        let wanted = Self.pollInterval(progress: currentProgress, angle: angle, stillFor: stillFor)
         if let timer, abs(timer.timeInterval - wanted) > 0.001 { schedule(interval: wanted) }
 
-        // 预热：快到起始角度就开始抓屏，真折下去第一帧就有画面，不会闪一下黑
-        if foldPermission, !fold.isRunning, angle <= FoldGeometry.startAngle + 12 { startFold() }
+        let wantCapture = foldPermission && FoldArming.shouldCapture(
+            angle: angle, progress: currentProgress, stillFor: stillFor, capturing: fold.isRunning)
+        if wantCapture, !fold.isRunning { startFold() }
+        if !wantCapture, fold.isRunning {
+            LidBlocker.log("合盖折叠：停止抓屏（角度 \(Int(angle))°，静止 \(Int(stillFor)) 秒）")
+            fold.stop()
+        }
 
         if raw == 0 && currentProgress < 0.01 {
-            hideNow()
+            hideOverlay()          // 覆盖层收掉，但抓屏是否继续由上面那条规则说了算
             return
         }
         setCursorHidden(Self.shouldHideCursor(progress: currentProgress))
@@ -268,8 +305,14 @@ final class DuoBlur {
     }
 
     /// 撤掉覆盖层并释放窗口：下次出现时重新绑定当前的内建屏幕（显示器可能插拔过）
+    /// 有人在看屏幕、或者彻底不用了：覆盖层和抓屏一起撤
     private func hideNow() {
         fold.stop()
+        hideOverlay()
+    }
+
+    /// 只收覆盖层，抓屏留给 FoldArming 决定——盖子还在动的话马上又要用
+    private func hideOverlay() {
         currentProgress = 0
         setCursorHidden(false)
         window?.orderOut(nil)

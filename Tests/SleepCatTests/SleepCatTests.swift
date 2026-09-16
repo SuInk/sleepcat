@@ -144,6 +144,9 @@ import AppKit
         #expect(DuoBlur.pollInterval(progress: 0, angle: 130) == 0.1)
         #expect(DuoBlur.pollInterval(progress: 0, angle: 95) < 0.02)
         #expect(DuoBlur.pollInterval(progress: 0.3, angle: 130) < 0.02)
+        // 半开着停稳了就降频，别按 60 帧空转一下午
+        #expect(DuoBlur.pollInterval(progress: 0, angle: 95, stillFor: 60) == 0.1)
+        #expect(DuoBlur.pollInterval(progress: 0.5, angle: 60, stillFor: 60) < 0.02, "折到一半停住仍要跟手")
     }
 
     @Test func smoothingIsFrameRateIndependent() {
@@ -838,5 +841,37 @@ import AppKit
         // 读数平稳时不该把噪声放大成大起大落
         let flat = PowerChartView.axis(low: 9.9, high: 10.1)
         #expect(flat.top - flat.bottom >= 4)
+    }
+}
+
+@Suite struct FoldArmingTests {
+    /// 盖子摊开不动（这是最常见的姿势）：绝不能开着抓屏，不然录屏指示灯长亮
+    @Test func idleLidNeverCaptures() {
+        for angle in [130.0, 120, 112, 108, 101] {
+            #expect(!FoldArming.shouldCapture(angle: angle, progress: 0, stillFor: 60, capturing: false),
+                    "\(angle)° 停着不该抓屏")
+            #expect(!FoldArming.shouldCapture(angle: angle, progress: 0, stillFor: 60, capturing: true),
+                    "\(angle)° 停稳后要撤掉")
+        }
+    }
+
+    @Test func armsWhileTheLidIsMoving() {
+        // 刚开始合、还没到起始角度：预热抓屏，真折下去第一帧就有画面
+        #expect(FoldArming.shouldCapture(angle: 108, progress: 0, stillFor: 0.2, capturing: false))
+        // 摊得太开就算在动也不抓
+        #expect(!FoldArming.shouldCapture(angle: 125, progress: 0, stillFor: 0.2, capturing: false))
+    }
+
+    @Test func keepsCapturingWhileFolding() {
+        // 折到一半停住：画面得留着，不能撤
+        #expect(FoldArming.shouldCapture(angle: 70, progress: 0.5, stillFor: 600, capturing: true))
+        #expect(FoldArming.shouldCapture(angle: 5, progress: 1, stillFor: 600, capturing: true))
+    }
+
+    @Test func hasHysteresisAtTheEdge() {
+        // 已经在抓的时候边界更宽，免得在临界角度上反复开关（指示灯闪个不停）
+        let angle = FoldGeometry.startAngle + 16
+        #expect(!FoldArming.shouldCapture(angle: angle, progress: 0, stillFor: 0.2, capturing: false))
+        #expect(FoldArming.shouldCapture(angle: angle, progress: 0, stillFor: 0.2, capturing: true))
     }
 }

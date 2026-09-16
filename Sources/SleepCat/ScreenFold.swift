@@ -82,6 +82,7 @@ final class ScreenFold: NSObject, SCStreamOutput {
                         LidBlocker.log("折叠：开始捕获失败 \(error.localizedDescription)")
                         DispatchQueue.main.async { done(false) }
                     } else {
+                        LidBlocker.log("合盖折叠：开始抓屏（录屏指示灯会亮，折完就撤）")
                         DispatchQueue.main.async { self.stream = stream; done(true) }
                     }
                 }
