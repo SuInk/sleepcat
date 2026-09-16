@@ -1468,6 +1468,50 @@ if CommandLine.arguments.contains("--power-flow") {
     exit(0)
 }
 
+// 调试：./SleepCat --snapshot-align <目录> 原生行和自绘行放在同一个菜单里截图，检查左边界对不对齐
+if let i = CommandLine.arguments.firstIndex(of: "--snapshot-align") {
+    let dir = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "."
+    NSApplication.shared.setActivationPolicy(.accessory)
+    DispatchQueue.main.async {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let native = NSMenuItem(title: "原生 低于 20%", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        native.state = .on
+        menu.addItem(native)
+        menu.addItem(NSMenuItem(title: "原生 关闭", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))
+        let row = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        row.view = MenuRow(symbol: nil, title: "自绘 低于 20%", isOn: { true }, action: {})
+        menu.addItem(row)
+        let row2 = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        row2.view = MenuRow(symbol: nil, title: "自绘 关闭", isOn: { false }, action: {})
+        menu.addItem(row2)
+        // 带图标的两种，检查勾和图标之间的距离
+        let icon = NSImage(systemSymbolName: "capsule", accessibilityDescription: nil)
+        let nativeIcon = NSMenuItem(title: "原生 刘海灵动岛", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        nativeIcon.image = icon
+        nativeIcon.state = .on
+        menu.addItem(nativeIcon)
+        let rowIcon = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        rowIcon.view = MenuRow(symbol: icon, title: "自绘 刘海灵动岛", isOn: { true }, action: {})
+        menu.addItem(rowIcon)
+        let timer = Timer(timeInterval: 0.6, repeats: false) { _ in
+            for window in NSApp.windows where window.isVisible {
+                guard let view = window.contentView?.superview ?? window.contentView,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(dir)/align.png"))
+            }
+            menu.cancelTracking()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        let screen = NSScreen.main?.visibleFrame ?? .zero
+        let x = NSEvent.mouseLocation.x > screen.midX ? screen.minX + 40 : screen.maxX - 320
+        menu.popUp(positioning: nil, at: NSPoint(x: x, y: screen.maxY - 10), in: nil)
+        exit(0)
+    }
+    NSApplication.shared.run()
+}
+
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出
 if CommandLine.arguments.contains("--dump-menu") {
     SleepCatApp.dumpMenu()

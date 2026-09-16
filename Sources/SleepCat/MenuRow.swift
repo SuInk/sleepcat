@@ -11,13 +11,19 @@ import AppKit
 /// 只用在开关和单选行上：带子菜单的行还是用标准菜单项，不然子菜单展不开。
 final class MenuRow: NSView {
     /// 和标准菜单行对齐用的几个位置（点）
+    /// 和原生菜单行对齐用的位置（点），是拿原生行和自绘行放在同一个菜单里截图量出来的
+    /// （./SleepCat --snapshot-align）
     private enum Metrics {
         static let height: CGFloat = 22
-        static let check: CGFloat = 12      // 勾的左边缘
-        static let icon: CGFloat = 30       // 图标的左边缘
-        static let title: CGFloat = 54      // 文字的左边缘
+        // 符号图片自带边距，按图片左边缘摆会比原生偏右 2～3 点，下面的值已经扣掉了这部分
+        static let check: CGFloat = 11      // 勾
+        static let icon: CGFloat = 28       // 图标
+        static let title: CGFloat = 51.5    // 有图标时的文字
+        static let titleWithoutIcon: CGFloat = 29   // 没图标时文字直接占图标列的位置，和原生一样
         static let trailing: CGFloat = 20
     }
+
+    private var titleX: CGFloat { symbol == nil ? Metrics.titleWithoutIcon : Metrics.title }
 
     private let symbol: NSImage?
     private let titleProvider: () -> String
@@ -35,7 +41,7 @@ final class MenuRow: NSView {
         self.action = action
         // 宽度按文字算，菜单自己会取最宽的一行，不会因为这几行变形
         let text = NSAttributedString(string: title(), attributes: [.font: NSFont.menuFont(ofSize: 0)])
-        let width = Metrics.title + ceil(text.size().width) + Metrics.trailing
+        let width = (symbol == nil ? Metrics.titleWithoutIcon : Metrics.title) + ceil(text.size().width) + Metrics.trailing
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Metrics.height))
         // 宽度只是「至少这么宽」；菜单会把带弹性宽度的视图拉到整行，
         // 不然悬停高亮只盖到文字末尾，和系统那几行对不齐
@@ -59,10 +65,18 @@ final class MenuRow: NSView {
         }
         let ink = highlighted ? NSColor.selectedMenuItemTextColor : NSColor.labelColor
 
-        if isOnProvider() {
-            NSAttributedString(string: "✓", attributes: [
-                .font: NSFont.menuFont(ofSize: 0), .foregroundColor: ink,
-            ]).draw(at: NSPoint(x: Metrics.check, y: 3))
+        // 勾用系统的 checkmark 符号，粗细和原生行一样；文字「✓」偏细，位置也会因为字形边距偏右
+        if isOnProvider(),
+           let check = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .bold)) {
+            let box = NSRect(x: Metrics.check, y: (bounds.height - check.size.height) / 2,
+                             width: check.size.width, height: check.size.height)
+            NSImage(size: box.size, flipped: false) { rect in
+                check.draw(in: rect)
+                ink.set()
+                rect.fill(using: .sourceAtop)
+                return true
+            }.draw(in: box)
         }
         if let symbol {
             let box = NSRect(x: Metrics.icon, y: (bounds.height - symbol.size.height) / 2,
@@ -77,7 +91,7 @@ final class MenuRow: NSView {
         }
         NSAttributedString(string: title, attributes: [
             .font: NSFont.menuFont(ofSize: 0), .foregroundColor: ink,
-        ]).draw(at: NSPoint(x: Metrics.title, y: 3))
+        ]).draw(at: NSPoint(x: titleX, y: 3))
     }
 
     private var isEnabledInMenu: Bool { enclosingMenuItem?.isEnabled ?? true }

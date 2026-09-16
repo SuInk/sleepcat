@@ -12,9 +12,9 @@ final class NotchIsland: NSObject {
         let active: Bool
         let title: String
         let detail: String
-        /// 实时整机功耗，读不到就不显示
+        /// 电源主读数：插电时为适配器输入，否则为电池放电；读不到就不显示
         var watts: Double? = nil
-        /// 读数下面的小字：充电 37.5 W / 电源供电 / 用电池
+        /// 读数来源和状态，与主读数保持一致
         var powerCaption: String? = nil
     }
 
@@ -176,6 +176,8 @@ extension NotchIsland {
         let size = NSSize(width: 404, height: notch.height + contentHeight)
         let samples: [(String, Status)] = [
             ("island-active", Status(active: true, title: "喵住中", detail: "还剩 1 小时 59 分 · 点按停止", watts: 49.1, powerCaption: "适配器 · 充电中")),
+            ("island-high-power", Status(active: true, title: "喵住中", detail: "无限期 · 合盖 · 点按停止", watts: 140.0, powerCaption: "适配器 · 充电中")),
+            ("island-no-power", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住")),
             ("island-idle", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: 10.2, powerCaption: "电池放电")),
         ]
         for (name, status) in samples {
@@ -219,6 +221,7 @@ private final class IslandView: NSView {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
+    private let powerDivider = NSView()
     private let powerIcon = NSImageView()
     private let powerLabel = NSTextField(labelWithString: "")
     private let captionLabel = NSTextField(labelWithString: "")
@@ -241,6 +244,7 @@ private final class IslandView: NSView {
 
         titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.textColor = .white
+        titleLabel.lineBreakMode = .byTruncatingTail
         capsule.addSubview(titleLabel)
 
         detailLabel.font = .systemFont(ofSize: 11)
@@ -248,7 +252,11 @@ private final class IslandView: NSView {
         detailLabel.lineBreakMode = .byTruncatingTail
         capsule.addSubview(detailLabel)
 
-        // 右侧的实时功耗：等宽数字，跳动时宽度不变，不会左右抖
+        powerDivider.wantsLayer = true
+        powerDivider.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        capsule.addSubview(powerDivider)
+
+        // 右侧固定分栏，数字变化不影响状态文字的可用宽度
         powerIcon.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "功耗")
         powerIcon.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
         powerIcon.contentTintColor = NSColor.white.withAlphaComponent(0.65)
@@ -262,6 +270,7 @@ private final class IslandView: NSView {
         captionLabel.font = .systemFont(ofSize: 10)
         captionLabel.textColor = NSColor.white.withAlphaComponent(0.55)
         captionLabel.alignment = .right
+        captionLabel.lineBreakMode = .byTruncatingTail
         capsule.addSubview(captionLabel)
     }
 
@@ -274,6 +283,9 @@ private final class IslandView: NSView {
         powerLabel.stringValue = status.watts.map { PowerMeter.wattsText($0) } ?? ""
         captionLabel.stringValue = status.watts == nil ? "" : (status.powerCaption ?? "")
         powerIcon.isHidden = status.watts == nil
+        powerDivider.isHidden = status.watts == nil
+        detailLabel.toolTip = status.detail
+        powerLabel.toolTip = status.watts.map { "\(status.powerCaption ?? "功耗") · \(PowerMeter.wattsText($0))" }
         needsLayout = true
     }
 
@@ -286,22 +298,23 @@ private final class IslandView: NSView {
         let iconSize = NSSize(width: 36, height: 30)
         iconView.frame = NSRect(x: 24, y: midY - iconSize.height / 2 - 2,
                                 width: iconSize.width, height: iconSize.height)
-        // 右侧功耗：读数右对齐，闪电贴在读数左边
-        let powerWidth: CGFloat = powerLabel.stringValue.isEmpty ? 0 : 76
+        // 两列共用上下两行位置；分隔线与闪电不随数字位数移动。
+        let hasPower = !powerLabel.stringValue.isEmpty
+        let right = bounds.width - 24
+        let dividerX = right - 104
         let hasCaption = !captionLabel.stringValue.isEmpty
-        // 有小字时读数往上挪一点，两行一起在内容区里居中
-        powerLabel.frame = NSRect(x: bounds.width - 22 - powerWidth, y: midY - (hasCaption ? 5 : 13),
-                                  width: powerWidth, height: 22)
-        captionLabel.frame = NSRect(x: bounds.width - 22 - 100, y: midY - 19, width: 100, height: 14)
-        let boltSize: CGFloat = 12
-        let textWidth = powerLabel.attributedStringValue.size().width
-        powerIcon.frame = NSRect(x: powerLabel.frame.maxX - textWidth - boltSize - 4, y: powerLabel.frame.minY + 5,
-                                 width: boltSize, height: boltSize + 2)
+        powerDivider.frame = NSRect(x: dividerX, y: midY - 16, width: 1, height: 32)
+        powerLabel.frame = NSRect(x: right - 82, y: hasCaption ? midY - 1 : midY - 11,
+                                 width: 82, height: 22)
+        captionLabel.frame = NSRect(x: dividerX + 8, y: midY - 18, width: 96, height: 15)
+        powerIcon.frame = NSRect(x: dividerX + 9, y: powerLabel.frame.minY + 5,
+                                width: 12, height: 14)
 
         let textX = iconView.frame.maxX + 14
-        let textRight = powerWidth > 0 ? powerIcon.frame.minX - 10 : bounds.width - 16
-        titleLabel.frame = NSRect(x: textX, y: midY, width: textRight - textX, height: 18)
-        detailLabel.frame = NSRect(x: textX, y: midY - 17, width: textRight - textX, height: 15)
+        let textRight = hasPower ? dividerX - 12 : right
+        let textWidth = max(0, textRight - textX)
+        titleLabel.frame = NSRect(x: textX, y: midY, width: textWidth, height: 18)
+        detailLabel.frame = NSRect(x: textX, y: midY - 18, width: textWidth, height: 15)
     }
 
     override func mouseDown(with event: NSEvent) {

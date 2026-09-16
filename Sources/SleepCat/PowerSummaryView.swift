@@ -14,12 +14,12 @@ final class PowerSummaryView: NSView {
     private enum Layout {
         static let leading: CGFloat = 30      // 和 MenuRow 的图标列对齐
         static let trailing: CGFloat = 20
-        static let width: CGFloat = 330
-        /// 内容区宽度：放得下「整机功耗 · 已记录 …」加跨度切换，适配器卡片的额定功率也不会挤到标题上
-        static let content: CGFloat = 280
+        static let width: CGFloat = 370
+        /// 最小内容宽度；菜单拉宽时，卡片、曲线和右侧控件一起延展
+        static let content: CGFloat = 320
         static let headline: CGFloat = 28
-        static let cards: CGFloat = 42
-        static let section: CGFloat = 26
+        static let cards: CGFloat = 58
+        static let section: CGFloat = 42
         static let ticks: CGFloat = 14
         static let stats: CGFloat = 34
     }
@@ -49,7 +49,7 @@ final class PowerSummaryView: NSView {
 
     override var isFlipped: Bool { true }   // 从上往下排版
 
-    private var contentWidth: CGFloat { Layout.content }
+    private var contentWidth: CGFloat { max(Layout.content, bounds.width - Layout.leading - Layout.trailing) }
     private var cardsTop: CGFloat { 4 + Layout.headline }
     private var sectionTop: CGFloat { cardsTop + Layout.cards + 10 }
     private var chartTop: CGFloat { sectionTop + Layout.section }
@@ -115,24 +115,26 @@ final class PowerSummaryView: NSView {
             drawSymbol(symbol, in: NSRect(x: frame.minX + 7, y: frame.minY + 5, width: 14, height: 12),
                        color: .secondaryLabelColor, pointSize: 9.5)
             text(card.title, NSPoint(x: frame.minX + 26, y: frame.minY + 4), .systemFont(ofSize: 9.5), .secondaryLabelColor)
-            // 额定功率放右上角：跟在数字后面的话，三位数时会顶到边框
+            // 额定功率独立放在底部，避免和「适配器」标题或三位数读数重叠
             if let suffix = card.suffix {
-                let rated = suffix.replacingOccurrences(of: "/ ", with: "") + " W"
+                let rated = "额定 " + suffix.replacingOccurrences(of: "/ ", with: "") + " W"
                 let ratedFont = NSFont.systemFont(ofSize: 9)
-                text(rated, NSPoint(x: frame.maxX - 7 - size(rated, ratedFont).width, y: frame.minY + 5),
+                text(rated, NSPoint(x: frame.maxX - 7 - size(rated, ratedFont).width, y: frame.minY + 38),
                      ratedFont, .tertiaryLabelColor)
             }
             let valueColor = card.tone == .normal ? NSColor.labelColor : Self.color(for: card.tone)
-            text(card.value, NSPoint(x: frame.minX + 7, y: frame.minY + 18),
+            text(card.value, NSPoint(x: frame.minX + 7, y: frame.minY + 20),
                  .monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold), valueColor)
         }
     }
 
-    /// 「整机功耗 · 已记录 58 分钟」：说清楚下面的曲线画的是整机，不是上面那个跟着电源状态变的主读数
+    /// 标题与记录时长分行，给右侧跨度控件留出独立空间；曲线始终表示整机功耗。
     private func drawSection(_ visible: PowerHistory) {
         let recorded = visible.isEmpty ? "还没有记录" : "已记录 \(PowerHistory.spanText(visible.span))"
-        text("整机功耗 · \(recorded)", NSPoint(x: Layout.leading, y: sectionTop + 3),
-             .systemFont(ofSize: 11), .secondaryLabelColor)
+        text("整机功耗", NSPoint(x: Layout.leading, y: sectionTop + 3),
+             .systemFont(ofSize: 11, weight: .semibold), .labelColor)
+        text(recorded, NSPoint(x: Layout.leading, y: sectionTop + 21),
+             .systemFont(ofSize: 10), .secondaryLabelColor)
     }
 
     private func drawChart(_ visible: PowerHistory) {
