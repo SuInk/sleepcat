@@ -1289,6 +1289,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // 应用不在跑时没人管合盖和休眠，得把 Mac 交还给系统；但不清会话，下次打开接着喵
         blocker.stop()
+        finishPowerSession()   // 退出前把这一段的功耗记下来，重开会当成新的一次
         restoreLidSleepIfNeeded()
         duoBlur?.stop()   // 确保光标一定还给用户
         keyboardLock.unlock()
