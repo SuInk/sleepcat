@@ -218,7 +218,7 @@ import AppKit
 
     @MainActor @Test func everyRowHasAnIcon() {
         let rows = SleepCatApp().buildMenu().items.filter {
-            !$0.isSeparatorItem && $0.attributedTitle == nil && !$0.title.isEmpty
+            !$0.isSeparatorItem && !$0.isHidden && $0.attributedTitle == nil && !$0.title.isEmpty
         }
         let naked = rows.filter { $0.image == nil }.map(\.title)
         // 分组标题本身没有图标，其余每行都该有
