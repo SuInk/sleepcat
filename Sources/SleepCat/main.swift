@@ -136,6 +136,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateLegacyDefaults()   // 必须在读任何设置之前
         Notifier.shared.setUp()
+        LaunchAtLogin.applyDefaultIfNeeded()
         trimOldLogs()
         // 一直开着的菜单栏应用不会天天重启，所以除了启动时，每天再清一次
         retentionTimer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
@@ -670,6 +671,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lowItem.isEnabled = false
             menu.addItem(lowItem)
         }
+
+        let loginItem = makeToggleItem("开机自动启动", symbol: "sunrise",
+                                       isOn: { LaunchAtLogin.isEnabled },
+                                       action: { LaunchAtLogin.toggle() })
+        loginItem.toolTip = "登录后自动在菜单栏出现；喵住状态会保留，开机后接着喵"
+        menu.addItem(loginItem)
 
         // ── 效果与提示 ──
         menu.addItem(sectionHeader("效果与提示"))

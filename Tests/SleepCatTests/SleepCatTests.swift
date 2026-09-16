@@ -979,3 +979,13 @@ import AppKit
         #expect(SleepCatApp.thresholdText(nil) == "已关闭")
     }
 }
+
+@Suite struct LaunchAtLoginTests {
+    @Test func onlyInstalledCopiesRegisterByDefault() {
+        #expect(LaunchAtLogin.isInstalled(bundlePath: "/Applications/SleepCat.app"))
+        #expect(LaunchAtLogin.isInstalled(bundlePath: NSHomeDirectory() + "/Applications/SleepCat.app"))
+        #expect(!LaunchAtLogin.isInstalled(bundlePath: "/Users/someone/project/sleepcat/SleepCat.app"))
+        #expect(!LaunchAtLogin.isInstalled(bundlePath: "/Volumes/SleepCat/SleepCat.app"))
+    }
+}
+
