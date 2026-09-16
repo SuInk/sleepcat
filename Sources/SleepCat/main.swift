@@ -769,6 +769,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     .write(to: URL(fileURLWithPath: "\(dir)/\(name)"))
             }
             if menu.highlightedItem != nil { print("⚠️ \(dark ? "深色" : "浅色")菜单截图带着高亮：\(menu.highlightedItem!.title)") }
+            // 自绘行要和整行一样宽，悬停高亮才会铺满
+            let rowWidths = Set(menu.items.compactMap { ($0.view as? MenuRow)?.frame.width })
+            print("菜单宽 \(Int(menu.size.width))，自绘行宽 \(rowWidths.map { Int($0) }.sorted())")
             menu.cancelTracking()
         }
         RunLoop.main.add(timer, forMode: .common)

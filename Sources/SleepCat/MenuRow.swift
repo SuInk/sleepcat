@@ -37,6 +37,9 @@ final class MenuRow: NSView {
         let text = NSAttributedString(string: title(), attributes: [.font: NSFont.menuFont(ofSize: 0)])
         let width = Metrics.title + ceil(text.size().width) + Metrics.trailing
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Metrics.height))
+        // 宽度只是「至少这么宽」；菜单会把带弹性宽度的视图拉到整行，
+        // 不然悬停高亮只盖到文字末尾，和系统那几行对不齐
+        autoresizingMask = [.width]
     }
 
     required init?(coder: NSCoder) { nil }
@@ -151,6 +154,7 @@ final class PowerSummaryView: NSView {
         if chart != nil { height += chartHeight + 8 }
         if footnote != nil { height += 16 }
         setFrameSize(NSSize(width: width, height: height + 8))
+        autoresizingMask = [.width]
     }
 
     required init?(coder: NSCoder) { nil }
