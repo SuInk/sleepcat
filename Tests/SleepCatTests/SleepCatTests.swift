@@ -848,29 +848,27 @@ import AppKit
         #expect(flow.isConsistent, "没插电时没有适配器可对账")
     }
 
-    @Test func barSplitsAdapterPowerUpToItsRating() {
-        let flow = PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5, adapterRated: 70)
-        let (total, segments) = flow.bar
-        #expect(total == 70, "插电时全长是额定功率")
-        #expect(segments.map(\.kind) == [.system, .charge, .spare])
-        #expect(abs(segments[0].watts - 11.6) < 0.001)
-        #expect(abs(segments[1].watts - 37.5) < 0.001)
-        #expect(abs(segments[2].watts - 20.9) < 0.001)
-        #expect(abs(segments.map(\.watts).reduce(0, +) - total) < 0.001, "各段加起来正好是全长")
+    @Test func cardsWhileCharging() {
+        let cards = PowerFlow(system: 11.6, adapter: 49.1, battery: 37.5, adapterRated: 70).cards
+        #expect(cards.map(\.title) == ["适配器", "整机", "电池"])
+        #expect(cards[0].value == "49.1 W" && cards[0].suffix == "/ 70", "适配器写成「实际 / 额定」")
+        #expect(cards[1].value == "11.6 W")
+        #expect(cards[2].value == "充 37.5 W" && cards[2].tone == .charge)
     }
 
-    @Test func barWithoutRatingOrWhileFull() {
-        // 读不到额定功率时全长就是实际输入，没有余量那段；充满时也没有充电那段
-        let full = PowerFlow(system: 18.6, adapter: 18.9, battery: 0).bar
-        #expect(full.total == 18.9)
-        #expect(full.segments.map(\.kind) == [.system])
+    @Test func cardsOnBattery() {
+        let cards = PowerFlow(system: 9.7, adapter: nil, battery: -10.2).cards
+        #expect(cards[0].value == "未插电" && cards[0].tone == .muted)
+        #expect(cards[1].value == "9.7 W")
+        #expect(cards[2].value == "放 10.2 W" && cards[2].tone == .discharge)
     }
 
-    @Test func barOnBatteryShowsConversionLoss() {
-        let (total, segments) = PowerFlow(system: 9.7, adapter: nil, battery: -10.2).bar
-        #expect(total == 10.2)
-        #expect(segments.map(\.kind) == [.system, .loss])
-        #expect(abs(segments[1].watts - 0.5) < 0.001)
+    @Test func cardsWhenFullOrWithoutBattery() {
+        let full = PowerFlow(system: 18.6, adapter: 18.9, battery: 0).cards
+        #expect(full[0].suffix == nil, "读不到额定功率就不写")
+        #expect(full[2].value == "不充不放" && full[2].tone == .muted)
+        let desktop = PowerFlow(system: 18.6, adapter: 18.9, battery: nil).cards
+        #expect(desktop[2].value == "无电池")
     }
 
     @Test func selfCheckCatchesReadingsThatDoNotAddUp() {

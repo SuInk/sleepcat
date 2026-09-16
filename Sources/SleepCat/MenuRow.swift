@@ -130,7 +130,7 @@ final class PowerSummaryView: NSView {
     private static let trailing: CGFloat = 20
     private static let headerHeight: CGFloat = 26
     private static let statsHeight: CGFloat = 16
-    private static let flowHeight: CGFloat = 30   // 流向条 + 图例
+    private static let flowHeight: CGFloat = 44   // 三块数字卡片
     private static let ticksHeight: CGFloat = 13
 
     private lazy var spanControl: NSSegmentedControl = {
@@ -187,10 +187,10 @@ final class PowerSummaryView: NSView {
         draw(current, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 15, weight: .semibold),
              color: .labelColor)
 
-        // 流向条：电被分到哪去了。插电时全长是适配器额定功率，用电池时是电池放出的功率
+        // 三块数字：适配器 / 整机 / 电池，电池那块用颜色区分充电和放电
         y -= Self.flowHeight
         if let flow {
-            drawFlowBar(flow, top: y + Self.flowHeight - 6)
+            drawCards(flow.cards, top: y + Self.flowHeight - 4)
         }
 
         y -= Self.statsHeight
@@ -231,48 +231,37 @@ final class PowerSummaryView: NSView {
         NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]).draw(at: point)
     }
 
-    private static func color(for kind: PowerFlow.Segment.Kind, onBattery: Bool) -> NSColor {
-        switch kind {
-        case .system: return onBattery ? .systemOrange : .systemBlue
+    private static func color(for tone: PowerFlow.Card.Tone) -> NSColor {
+        switch tone {
+        case .normal: return .labelColor
         case .charge: return .systemGreen
-        case .spare, .loss: return NSColor.labelColor.withAlphaComponent(0.12)
+        case .discharge: return .systemOrange
+        case .muted: return .tertiaryLabelColor
         }
     }
 
-    private func drawFlowBar(_ flow: PowerFlow, top: CGFloat) {
-        let (total, segments) = flow.bar
-        let onBattery = flow.state == .onBattery
-        let track = NSRect(x: Self.leading, y: top - 8, width: PowerChart.size.width, height: 8)
-        let clip = NSBezierPath(roundedRect: track, xRadius: 4, yRadius: 4)
-        NSGraphicsContext.saveGraphicsState()
-        clip.addClip()
-        NSColor.labelColor.withAlphaComponent(0.08).setFill()
-        track.fill()
-        var x = track.minX
-        for segment in segments where total > 0 {
-            let width = track.width * CGFloat(segment.watts / total)
-            Self.color(for: segment.kind, onBattery: onBattery).setFill()
-            NSRect(x: x, y: track.minY, width: width, height: track.height).fill()
-            x += width
-        }
-        NSGraphicsContext.restoreGraphicsState()
+    private func drawCards(_ cards: [PowerFlow.Card], top: CGFloat) {
+        let gap: CGFloat = 6
+        let width = (PowerChart.size.width - gap * CGFloat(cards.count - 1)) / CGFloat(cards.count)
+        let height: CGFloat = 36
+        for (index, card) in cards.enumerated() {
+            let frame = NSRect(x: Self.leading + CGFloat(index) * (width + gap), y: top - height,
+                               width: width, height: height)
+            let outline = NSBezierPath(roundedRect: frame.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
+            NSColor.separatorColor.setStroke()
+            outline.lineWidth = 1
+            outline.stroke()
 
-        // 图例：有颜色的几段靠左带圆点，余量 / 损耗这种灰色的靠右
-        let font = NSFont.systemFont(ofSize: 10)
-        let legendY = track.minY - 15
-        var legendX = track.minX
-        for segment in segments where segment.kind == .system || segment.kind == .charge {
-            let dot = NSRect(x: legendX, y: legendY + 3.5, width: 6, height: 6)
-            Self.color(for: segment.kind, onBattery: onBattery).setFill()
-            NSBezierPath(ovalIn: dot).fill()
-            let text = "\(segment.label) \(PowerMeter.wattsText(segment.watts))"
-            draw(text, at: NSPoint(x: dot.maxX + 4, y: legendY), font: font, color: .secondaryLabelColor)
-            legendX = dot.maxX + 4 + NSAttributedString(string: text, attributes: [.font: font]).size().width + 12
-        }
-        if let rest = segments.first(where: { $0.kind == .spare || $0.kind == .loss }) {
-            let text = "\(rest.label) \(PowerMeter.wattsText(rest.watts))"
-            let width = NSAttributedString(string: text, attributes: [.font: font]).size().width
-            draw(text, at: NSPoint(x: track.maxX - width, y: legendY), font: font, color: .tertiaryLabelColor)
+            draw(card.title, at: NSPoint(x: frame.minX + 7, y: frame.maxY - 15),
+                 font: .systemFont(ofSize: 9.5), color: .secondaryLabelColor)
+            let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .semibold)
+            let valuePoint = NSPoint(x: frame.minX + 7, y: frame.minY + 4)
+            draw(card.value, at: valuePoint, font: valueFont, color: Self.color(for: card.tone))
+            if let suffix = card.suffix {
+                let valueWidth = NSAttributedString(string: card.value, attributes: [.font: valueFont]).size().width
+                draw(suffix, at: NSPoint(x: valuePoint.x + valueWidth + 3, y: valuePoint.y + 1.5),
+                     font: .systemFont(ofSize: 9.5), color: .secondaryLabelColor)
+            }
         }
     }
 

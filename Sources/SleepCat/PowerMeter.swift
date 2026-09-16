@@ -120,35 +120,35 @@ struct PowerFlow: Equatable {
         }
     }
 
-    /// 流向条的一段
-    struct Segment: Equatable {
-        enum Kind: Equatable { case system, charge, spare, loss }
-        let kind: Kind
-        let label: String
-        let watts: Double
+    /// 概览里的三块数字：适配器 / 整机 / 电池
+    struct Card: Equatable {
+        enum Tone: Equatable { case normal, charge, discharge, muted }
+        let title: String
+        let value: String
+        /// 数字后面的小字，比如适配器的额定功率「/ 70」
+        var suffix: String? = nil
+        var tone: Tone = .normal
     }
 
-    /// 流向条：插电时全长是适配器额定功率，分成整机 / 充电 / 余量；
-    /// 用电池时全长是电池放出的功率，分成整机 / 转换损耗。纯函数，便于测试
-    var bar: (total: Double, segments: [Segment]) {
+    /// 纯函数，便于测试
+    var cards: [Card] {
+        let w = PowerMeter.wattsText
+        let adapterCard: Card = adapter.map {
+            Card(title: "适配器", value: w($0), suffix: adapterRated.map { String(format: "/ %.0f", $0) })
+        } ?? Card(title: "适配器", value: "未插电", tone: .muted)
+
+        let batteryCard: Card
         switch state {
-        case .charging, .pluggedIn:
-            let input = adapter ?? system
-            let used = min(system, input)
-            var segments = [Segment(kind: .system, label: "整机", watts: used)]
-            if state == .charging { segments.append(Segment(kind: .charge, label: "充电", watts: max(0, input - used))) }
-            let total = max(adapterRated ?? input, input)
-            let spare = total - input
-            if spare >= 0.1 { segments.append(Segment(kind: .spare, label: "余量", watts: spare)) }
-            return (total, segments)
+        case .charging:
+            batteryCard = Card(title: "电池", value: "充 \(w(max(0, battery ?? 0)))", tone: .charge)
         case .onBattery:
-            let discharge = headline.watts
-            let used = min(system, discharge)
-            var segments = [Segment(kind: .system, label: "整机", watts: used)]
-            let loss = discharge - used
-            if loss >= 0.1 { segments.append(Segment(kind: .loss, label: "损耗", watts: loss)) }
-            return (max(discharge, used), segments)
+            batteryCard = Card(title: "电池", value: "放 \(w(headline.watts))", tone: .discharge)
+        case .pluggedIn:
+            batteryCard = battery == nil
+                ? Card(title: "电池", value: "无电池", tone: .muted)
+                : Card(title: "电池", value: "不充不放", tone: .muted)
         }
+        return [adapterCard, Card(title: "整机", value: w(system)), batteryCard]
     }
 
     /// 自检：插电时适配器输入应该约等于整机 + 充电。差得太多说明某个读数不可信
