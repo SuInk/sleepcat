@@ -648,7 +648,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(duoItem)
 
         let blurItem = makeItem("合盖模糊效果", #selector(toggleDuoBlurSetting), symbol: "camera.filters")
-        blurItem.toolTip = "合盖时屏幕渐进模糊：铰链边保持清晰，远边越来越糊并暗下去"
+        blurItem.toolTip = "合盖时整屏模糊并暗下去，合得越多越糊，重新打开就消散"
         if duoBlur != nil {
             blurItem.state = duoBlurEnabled ? .on : .off
         } else {

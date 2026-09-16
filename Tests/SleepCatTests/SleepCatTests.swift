@@ -618,16 +618,6 @@ import AppKit
 }
 
 @Suite struct FoldGeometryTests {
-    @Test func profilesStaySharpAtTheHinge() {
-        #expect(FoldGeometry.blurProfile(atHeight: 0) == FoldGeometry.blurFloor)
-        #expect(FoldGeometry.blurProfile(atHeight: 1) == 1)
-        #expect(FoldGeometry.dimProfile(atHeight: 0) == 0)
-        #expect(FoldGeometry.dimProfile(atHeight: FoldGeometry.dimStart) == 0, "铰链附近不压暗")
-        #expect(abs(FoldGeometry.dimProfile(atHeight: 1) - FoldGeometry.maxDim) < 0.001)
-        let ramp = stride(from: 0.0, through: 1.0, by: 0.05).map { FoldGeometry.dimProfile(atHeight: $0) }
-        for (a, b) in zip(ramp, ramp.dropFirst()) { #expect(b >= a) }
-    }
-
     @Test func strengthCurvesStartSlow() {
         #expect(FoldGeometry.blurStrength(progress: 0) == 0)
         #expect(FoldGeometry.blurStrength(progress: 1) == 1)

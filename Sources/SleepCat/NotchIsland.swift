@@ -48,10 +48,15 @@ final class NotchIsland: NSObject {
                       width: width, height: height)
     }
 
-    /// 展开态：刘海下方的胶囊
+    /// 展开态：刘海下方的胶囊。内容必须整个排在刘海下面——
+    /// 刘海是屏幕上的硬件挖孔，画在那一块的字根本显示不出来
+    static let contentHeight: CGFloat = 56
+
+    private var notchHeight: CGFloat { screen?.safeAreaInsets.top ?? 0 }
+
     private var expandedFrame: NSRect {
         guard let s = screen else { return .zero }
-        let size = NSSize(width: 404, height: 84)   // 右边留出功耗读数的位置
+        let size = NSSize(width: 404, height: notchHeight + Self.contentHeight)   // 右边留出功耗读数的位置
         return NSRect(x: s.frame.midX - size.width / 2, y: s.frame.maxY - size.height,
                       width: size.width, height: size.height)
     }
@@ -74,6 +79,7 @@ final class NotchIsland: NSObject {
 
         let v = IslandView(frame: NSRect(origin: .zero, size: collapsedFrame.size))
         v.island = self
+        v.topInset = notchHeight
         v.alphaValue = 0
         p.contentView = v
         p.orderFrontRegardless()
@@ -164,7 +170,8 @@ final class NotchIsland: NSObject {
 extension NotchIsland {
     /// 调试用：把展开态的岛离屏渲染成 PNG（2x）
     static func renderPreview(toDirectory dir: String) {
-        let size = NSSize(width: 404, height: 84)
+        let notch = NSSize(width: 208, height: 37.5)   // 14 寸 MacBook Pro 的刘海
+        let size = NSSize(width: 404, height: notch.height + contentHeight)
         let samples: [(String, Status)] = [
             ("island-active", Status(active: true, title: "喵住中", detail: "还剩 1 小时 59 分 · 点按停止", watts: 12.5)),
             ("island-idle", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: 4.3)),
@@ -172,6 +179,7 @@ extension NotchIsland {
         for (name, status) in samples {
             let v = IslandView(frame: NSRect(origin: .zero, size: size))
             v.alphaValue = 1
+            v.topInset = notch.height
             v.apply(status)
             let w = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                              styleMask: .borderless, backing: .buffered, defer: false)
@@ -183,6 +191,17 @@ extension NotchIsland {
             if let data = rep.representation(using: .png, properties: [:]) {
                 try? data.write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
             }
+            // 检查图：用红框标出硬件刘海的位置，框里不能有任何字
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            let notchRect = NSRect(x: (size.width - notch.width) / 2, y: size.height - notch.height,
+                                   width: notch.width, height: notch.height)
+            NSColor.systemRed.withAlphaComponent(0.35).setFill()
+            notchRect.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            if let data = rep.representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: "\(dir)/\(name)-notch-check.png"))
+            }
         }
     }
 }
@@ -191,6 +210,8 @@ extension NotchIsland {
 
 private final class IslandView: NSView {
     weak var island: NotchIsland?
+    /// 顶部被刘海占掉的高度，内容只排在它下面
+    var topInset: CGFloat = 0 { didSet { needsLayout = true } }
 
     private let capsule = NSView()
     private let iconView = NSImageView()
@@ -250,22 +271,25 @@ private final class IslandView: NSView {
     override func layout() {
         super.layout()
         capsule.frame = bounds
+        // 内容区：去掉顶部刘海那一截，下面的元素都按这块区域居中
+        let content = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - topInset))
+        let midY = content.midY
         let iconSize = NSSize(width: 36, height: 30)
-        iconView.frame = NSRect(x: 24, y: bounds.midY - iconSize.height / 2 - 2,
+        iconView.frame = NSRect(x: 24, y: midY - iconSize.height / 2 - 2,
                                 width: iconSize.width, height: iconSize.height)
         // 右侧功耗：读数右对齐，闪电贴在读数左边
         let powerWidth: CGFloat = powerLabel.stringValue.isEmpty ? 0 : 76
-        powerLabel.frame = NSRect(x: bounds.width - 22 - powerWidth, y: bounds.midY - 13,
+        powerLabel.frame = NSRect(x: bounds.width - 22 - powerWidth, y: midY - 13,
                                   width: powerWidth, height: 22)
         let boltSize: CGFloat = 12
         let textWidth = powerLabel.attributedStringValue.size().width
-        powerIcon.frame = NSRect(x: powerLabel.frame.maxX - textWidth - boltSize - 4, y: bounds.midY - 8,
+        powerIcon.frame = NSRect(x: powerLabel.frame.maxX - textWidth - boltSize - 4, y: midY - 8,
                                  width: boltSize, height: boltSize + 2)
 
         let textX = iconView.frame.maxX + 14
         let textRight = powerWidth > 0 ? powerIcon.frame.minX - 10 : bounds.width - 16
-        titleLabel.frame = NSRect(x: textX, y: bounds.midY, width: textRight - textX, height: 18)
-        detailLabel.frame = NSRect(x: textX, y: bounds.midY - 17, width: textRight - textX, height: 15)
+        titleLabel.frame = NSRect(x: textX, y: midY, width: textRight - textX, height: 18)
+        detailLabel.frame = NSRect(x: textX, y: midY - 17, width: textRight - textX, height: 15)
     }
 
     override func mouseDown(with event: NSEvent) {

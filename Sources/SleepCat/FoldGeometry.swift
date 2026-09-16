@@ -4,8 +4,7 @@
 
 import Foundation
 
-/// 合盖模糊的曲线：起始角度、各高度的模糊和压暗强度。
-/// 参数取自 iPhone Duo 折叠转场的观感——铰链边清晰，远边先糊先黑。
+/// 合盖模糊的曲线：起始角度、模糊和压暗随合盖进度怎么增长。
 /// 全是纯函数，方便单测
 enum FoldGeometry {
     /// 开始折叠的角度（度）。比这更开就是完全清晰
@@ -19,21 +18,8 @@ enum FoldGeometry {
     /// 变暗整体强度：比模糊来得早一点
     static func dimStrength(progress: Double) -> Double { pow(max(0, progress), 0.9) }
 
-    /// 画面上某个高度（g：0＝铰链边，1＝远边）该有多糊，0…1
-    static let blurFloor: Double = 0.08
-    static func blurProfile(atHeight g: Double) -> Double {
-        let t = min(1, max(0, g))
-        return blurFloor + (1 - blurFloor) * pow(t, 1.35)
-    }
-
-    /// 同一高度该有多暗，0…1。铰链附近不压暗，远边最黑
-    static let dimStart: Double = 0.18
+    /// 合到底时压暗的最大浓度
     static let maxDim: Double = 0.92
-    static func dimProfile(atHeight g: Double) -> Double {
-        let spread = (min(1, max(0, g)) - dimStart) / (1 - dimStart)
-        guard spread > 0 else { return 0 }
-        return pow(spread, 1.9) * maxDim
-    }
 }
 
 /// 临界阻尼弹簧：把 100Hz 上来的整数角度磨成显示器刷新率上的连续值，不抖也不过冲
