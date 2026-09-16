@@ -4,52 +4,12 @@
 
 import Foundation
 
-/// 合盖折叠的几何与曲线。
-///
-/// 做法跟 iPhone Duo 的折叠转场一致：画面**停在原地**，物理屏幕从画面里转过去。
-/// 把眼睛放在起始角度时屏幕法线前方，向画面四角连线、与当前屏幕平面求交，
-/// 得到画面落在屏幕上的四边形；再用它做一次透视变换，屏幕上看到的就是「画面没动」。
-///
-/// 全是纯函数，方便单测；实际渲染在 ScreenFold 里。
+/// 合盖模糊的曲线：起始角度、各高度的模糊和压暗强度。
+/// 参数取自 iPhone Duo 折叠转场的观感——铰链边清晰，远边先糊先黑。
+/// 全是纯函数，方便单测
 enum FoldGeometry {
     /// 开始折叠的角度（度）。比这更开就是完全清晰
     static let startAngle: Double = 100
-
-    /// 眼睛离屏幕多远、多高，单位都是「屏幕高度」。2.6 个屏高 ≈ 16 寸上的 56 厘米
-    static let eyeDistance: Double = 2.6
-    static let eyeHeight: Double = 0.5
-
-    /// 透视强度：按真实几何算太猛，打六折更耐看
-    static let projectionStrength: Double = 0.6
-
-    /// 角度 → 进度（0 全清晰，1 完全折叠）
-    static func progress(forAngle angle: Double) -> Double {
-        min(1, max(0, (startAngle - angle) / startAngle))
-    }
-
-    /// 画面上一点（x 从中心算，y 从铰链边算，单位都是点）映射到屏幕平面上的位置。
-    /// - Parameters:
-    ///   - height: 屏幕高度（点）
-    ///   - delta: 已经转过的角度（弧度），0 表示还没开始折
-    static func project(x: Double, y: Double, height: Double, delta: Double) -> (x: Double, y: Double) {
-        let b = sin(delta)
-        let c = -eyeDistance * height
-        let k = b * (height / 2 + eyeHeight * height) + c * cos(delta)
-        let denominator = k - b * y
-        // 画面平面掠过眼睛时分母趋近 0，夹一下免得算出无穷大
-        guard abs(denominator) > 1e-6 else { return (x, y) }
-        return (k * x / denominator, c * y / denominator)
-    }
-
-    /// 画面四角落在屏幕上的位置（屏幕坐标，原点在左下＝铰链侧）。
-    /// 顺序：左下、右下、左上、右上
-    static func projectedCorners(width: Double, height: Double, angle: Double) -> [(x: Double, y: Double)] {
-        let delta = max(0, (startAngle - angle)) * projectionStrength * .pi / 180
-        return [(-width / 2, 0.0), (width / 2, 0.0), (-width / 2, height), (width / 2, height)].map {
-            let p = project(x: $0.0, y: $0.1, height: height, delta: delta)
-            return (p.x + width / 2, p.y)
-        }
-    }
 
     // MARK: 强度曲线
 

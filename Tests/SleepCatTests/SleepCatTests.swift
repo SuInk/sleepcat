@@ -130,16 +130,21 @@ import AppKit
         // 同一层：越合越糊，单调不回落
         let ramp = stride(from: 0.0, through: 1.0, by: 0.05).map { DuoBlur.blurRadius(progress: $0, band: 0) }
         for (a, b) in zip(ramp, ramp.dropFirst()) { #expect(b >= a) }
-        #expect(ramp.last! == DuoBlur.maxBlurRadius)
-        // 同一进度：靠上的层先起雾，糊得更厉害
+        // 合到底时远边接近最大半径，铰链边仍然基本清晰——这正是「渐进」的意思
+        let top = DuoBlur.blurRadius(progress: 1, band: DuoBlur.blurBands.count - 1)
+        let hinge = DuoBlur.blurRadius(progress: 1, band: 0)
+        #expect(top > DuoBlur.maxBlurRadius * 0.7)
+        #expect(hinge < DuoBlur.maxBlurRadius * 0.2)
+        #expect(top > hinge * 4)
+        // 同一进度：越靠远边（层序号越大）越糊
         let atHalf = DuoBlur.blurBands.indices.map { DuoBlur.blurRadius(progress: 0.5, band: $0) }
         for (a, b) in zip(atHalf, atHalf.dropFirst()) { #expect(b >= a) }
     }
 
-    @Test func frostAndPollFollowProgress() {
-        #expect(DuoBlur.frostOpacity(progress: 0) == 0)
-        #expect(DuoBlur.frostOpacity(progress: 1) > 0.8)
-        #expect(DuoBlur.frostOpacity(progress: 0.5) < DuoBlur.frostOpacity(progress: 0.9))
+    @Test func dimAndPollFollowProgress() {
+        #expect(DuoBlur.dimOpacity(progress: 0) == 0)
+        #expect(DuoBlur.dimOpacity(progress: 1) > 0.8)
+        #expect(DuoBlur.dimOpacity(progress: 0.5) < DuoBlur.dimOpacity(progress: 0.9))
         // 盖子摊开不动时慢慢看着，一开始合就切到 60 帧
         #expect(DuoBlur.pollInterval(progress: 0, angle: 130) == 0.1)
         #expect(DuoBlur.pollInterval(progress: 0, angle: 95) < 0.02)
@@ -159,10 +164,6 @@ import AppKit
         #expect(abs(run(steps: 18) - run(steps: 3)) < 0.05)
         #expect(run(steps: 18) > 0.9, "0.3 秒内基本跟上")
         #expect(DuoBlur.smoothed(current: 0.5, target: 0.5, dt: 1) == 0.5)
-    }
-
-    @Test func grainPatternIsAvailable() {
-        #expect(DuoBlur.grainPattern(tile: 16) != nil, "磨砂颗粒生成失败的话玻璃会显得像塑料")
     }
 
     @Test func neverOutOfRange() {
@@ -650,32 +651,6 @@ import AppKit
 }
 
 @Suite struct FoldGeometryTests {
-    let w = 1710.0, h = 1112.0
-
-    @Test func fullyOpenIsIdentity() {
-        // 还没开始折的时候，画面必须原封不动地贴在屏幕上
-        let corners = FoldGeometry.projectedCorners(width: w, height: h, angle: FoldGeometry.startAngle)
-        #expect(abs(corners[0].x - 0) < 0.001 && abs(corners[0].y - 0) < 0.001)
-        #expect(abs(corners[3].x - w) < 0.001 && abs(corners[3].y - h) < 0.001)
-        #expect(FoldGeometry.progress(forAngle: FoldGeometry.startAngle) == 0)
-        #expect(FoldGeometry.progress(forAngle: 130) == 0)
-    }
-
-    @Test func pictureStaysPutAsTheLidCloses() {
-        // 屏幕转过去以后，画面在屏幕坐标里必须「长高」：这正是画面没跟着动的表现
-        var lastTop = h
-        for angle in stride(from: FoldGeometry.startAngle, through: 10, by: -10) {
-            let corners = FoldGeometry.projectedCorners(width: w, height: h, angle: angle)
-            #expect(corners[2].y >= lastTop - 0.001, "顶边应该越来越高，角度 \(angle)")
-            lastTop = corners[2].y
-            // 铰链边永远钉在原处
-            #expect(abs(corners[0].y) < 0.001 && abs(corners[1].y) < 0.001)
-            // 左右对称
-            #expect(abs((corners[2].x - w / 2) + (corners[3].x - w / 2)) < 0.001)
-        }
-        #expect(lastTop > h, "合到底时画面顶边应该已经超出屏幕")
-    }
-
     @Test func profilesStaySharpAtTheHinge() {
         #expect(FoldGeometry.blurProfile(atHeight: 0) == FoldGeometry.blurFloor)
         #expect(FoldGeometry.blurProfile(atHeight: 1) == 1)
@@ -844,34 +819,3 @@ import AppKit
     }
 }
 
-@Suite struct FoldArmingTests {
-    /// 盖子摊开不动（这是最常见的姿势）：绝不能开着抓屏，不然录屏指示灯长亮
-    @Test func idleLidNeverCaptures() {
-        for angle in [130.0, 120, 112, 108, 101] {
-            #expect(!FoldArming.shouldCapture(angle: angle, progress: 0, stillFor: 60, capturing: false),
-                    "\(angle)° 停着不该抓屏")
-            #expect(!FoldArming.shouldCapture(angle: angle, progress: 0, stillFor: 60, capturing: true),
-                    "\(angle)° 停稳后要撤掉")
-        }
-    }
-
-    @Test func armsWhileTheLidIsMoving() {
-        // 刚开始合、还没到起始角度：预热抓屏，真折下去第一帧就有画面
-        #expect(FoldArming.shouldCapture(angle: 108, progress: 0, stillFor: 0.2, capturing: false))
-        // 摊得太开就算在动也不抓
-        #expect(!FoldArming.shouldCapture(angle: 125, progress: 0, stillFor: 0.2, capturing: false))
-    }
-
-    @Test func keepsCapturingWhileFolding() {
-        // 折到一半停住：画面得留着，不能撤
-        #expect(FoldArming.shouldCapture(angle: 70, progress: 0.5, stillFor: 600, capturing: true))
-        #expect(FoldArming.shouldCapture(angle: 5, progress: 1, stillFor: 600, capturing: true))
-    }
-
-    @Test func hasHysteresisAtTheEdge() {
-        // 已经在抓的时候边界更宽，免得在临界角度上反复开关（指示灯闪个不停）
-        let angle = FoldGeometry.startAngle + 16
-        #expect(!FoldArming.shouldCapture(angle: angle, progress: 0, stillFor: 0.2, capturing: false))
-        #expect(FoldArming.shouldCapture(angle: angle, progress: 0, stillFor: 0.2, capturing: true))
-    }
-}

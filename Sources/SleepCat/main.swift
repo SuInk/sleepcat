@@ -5,7 +5,6 @@
 import AppKit
 import IOKit.pwr_mgt
 import UserNotifications
-import ScreenCaptureKit
 
 // MARK: - 电源断言管理（真正"喵住"Mac 的部分）
 
@@ -681,21 +680,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         duoItem.toolTip = "鼠标悬停刘海展开状态胶囊，点按可切换"
         menu.addItem(duoItem)
 
-        let blurItem = makeItem("合盖折叠效果", #selector(toggleDuoBlurSetting), symbol: "camera.filters")
-        blurItem.toolTip = "合盖时画面停在原处，屏幕从画面里转过去，远边渐渐糊掉、暗下去"
+        let blurItem = makeItem("合盖模糊效果", #selector(toggleDuoBlurSetting), symbol: "camera.filters")
+        blurItem.toolTip = "合盖时屏幕渐进模糊：铰链边保持清晰，远边越来越糊并暗下去"
         if duoBlur != nil {
             blurItem.state = duoBlurEnabled ? .on : .off
-            // 没有屏幕录制权限只能退回毛玻璃，给个一步到位的入口
-            if duoBlurEnabled, duoBlur?.needsScreenRecording == true {
-                let sub = NSMenu()
-                let why = NSMenuItem(title: "现在是简化效果：缺屏幕录制权限", action: nil, keyEquivalent: "")
-                why.isEnabled = false
-                sub.addItem(why)
-                sub.addItem(.separator())
-                sub.addItem(makeItem("开启屏幕录制权限…", #selector(requestScreenRecording)))
-                blurItem.submenu = sub
-            }
-            blurItem.toolTip = "跟随铰链角度实时模糊屏幕"
         } else {
             blurItem.action = nil
             blurItem.isEnabled = false
@@ -1204,40 +1192,6 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleSoundSetting() { soundEnabled.toggle() }
 
-    @objc private func requestScreenRecording() {
-        guard let duoBlur else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        duoBlur.requestScreenRecording { [weak self] granted in
-            guard let self else { return }
-            if granted {
-                Toast.show("授权好了，重新打开 SleepCat 就会用完整效果", below: self.statusItem?.button)
-                return
-            }
-            // 系统已经记成拒绝，不会再弹框了：要么去设置里开，要么先清掉那条记录
-            let alert = NSAlert()
-            alert.messageText = "系统里已经记着「不允许」"
-            alert.informativeText = """
-                合盖折叠要读屏幕上的画面，所以需要屏幕录制权限。
-
-                之前这个请求被拒绝过（多半是授权框没点就消失了），macOS 就不会再弹框了。                如果「系统设置 › 隐私与安全性 › 屏幕录制」里根本找不到 SleepCat，                在终端运行下面这行清掉记录，再重新打开 SleepCat 就会重新弹框：
-
-                \(DuoBlur.resetPermissionCommand)
-                """
-            alert.addButton(withTitle: "复制这行命令")
-            alert.addButton(withTitle: "打开系统设置")
-            alert.addButton(withTitle: "以后再说")
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
-                self.copyToPasteboard(DuoBlur.resetPermissionCommand)
-                Toast.show("已复制，粘贴到终端运行后重开 SleepCat", below: self.statusItem?.button)
-            case .alertSecondButtonReturn:
-                DuoBlur.openScreenRecordingSettings()
-            default:
-                break
-            }
-        }
-    }
-
     @objc private func toggleDuoBlurSetting() {
         duoBlurEnabled.toggle()
         if duoBlurEnabled {
@@ -1540,47 +1494,6 @@ if let i = CommandLine.arguments.firstIndex(of: "--blur-demo") ?? CommandLine.ar
         else { blur.showDemo(progress: args.first ?? 0.7, seconds: args.count > 1 ? args[1] : 6) }
     }
     NSApplication.shared.run()
-}
-
-// 调试：./SleepCat --fold-bench [帧数] 量一帧折叠效果要多久
-if let i = CommandLine.arguments.firstIndex(of: "--fold-bench") {
-    let frames = CommandLine.arguments.count > i + 1 ? Int(CommandLine.arguments[i + 1]) ?? 60 : 60
-    let screen = NSScreen.main
-    let scale = screen?.backingScaleFactor ?? 2
-    let size = CGSize(width: (screen?.frame.width ?? 1710) * scale, height: (screen?.frame.height ?? 1112) * scale)
-    if let ms = ScreenFold.benchmark(frames: frames, pixelSize: size, scale: scale) {
-        print(String(format: "%.0f×%.0f 像素：每帧 %.1f 毫秒（%.0f fps），60 帧的预算是 16.7 毫秒",
-                     size.width, size.height, ms, 1000 / ms))
-    } else {
-        print("跑不起来：拿不到 Metal 设备")
-    }
-    exit(0)
-}
-
-// 调试：./SleepCat --screen-permission 查屏幕录制权限的真实状态
-if CommandLine.arguments.contains("--screen-permission") {
-    print("CGPreflightScreenCaptureAccess：\(CGPreflightScreenCaptureAccess() ? "有权限" : "没有权限")")
-    // 结果同时写日志：用 open 启动时没有终端可打印，而只有 open 启动，
-    // 系统才会把权限请求算在 SleepCat 自己头上（命令行启动会算在启动它的那个程序上）
-    LidBlocker.log("权限检查：preflight=\(CGPreflightScreenCaptureAccess())")
-    if CommandLine.arguments.contains("request") {
-        print("正在申请（没有记录时会弹框，已被拒绝则直接返回）…")
-        let granted = CGRequestScreenCaptureAccess()
-        print("CGRequestScreenCaptureAccess：\(granted ? "已授权" : "未授权")")
-        LidBlocker.log("权限检查：request=\(granted)")
-    }
-    let sema = DispatchSemaphore(value: 0)
-    SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
-        if let content {
-            print("SCShareableContent：拿到了，\(content.displays.count) 个屏幕、\(content.windows.count) 个窗口")
-        } else {
-            let ns = error as NSError?
-            print("SCShareableContent：失败 domain=\(ns?.domain ?? "?") code=\(ns?.code ?? 0) \(ns?.localizedDescription ?? "")")
-        }
-        sema.signal()
-    }
-    _ = sema.wait(timeout: .now() + 10)
-    exit(0)
 }
 
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出
