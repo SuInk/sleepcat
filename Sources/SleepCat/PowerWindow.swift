@@ -61,8 +61,45 @@ final class PowerWindowController: NSObject, NSWindowDelegate {
 
 /// 曲线本体：标题行 + 折线 + 横向网格。自己画，不引第三方图表库
 final class PowerChartView: NSView {
-    var history = PowerHistory()
+    var history = PowerHistory() {
+        didSet { needsDisplay = true }
+    }
     var footnote: String?
+    /// 切换跨度后回调，让菜单那边也跟着变
+    var onSpanChange: (() -> Void)?
+
+    private lazy var spanControl: NSSegmentedControl = {
+        let control = NSSegmentedControl(labels: PowerSpan.options.map(\.label),
+                                         trackingMode: .selectOne, target: self, action: #selector(spanChanged))
+        control.segmentStyle = .rounded
+        control.controlSize = .small
+        control.font = .systemFont(ofSize: 11)
+        control.selectedSegment = PowerSpan.options.firstIndex { $0.seconds == PowerSpan.current } ?? 0
+        return control
+    }()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addSubview(spanControl)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        let size = spanControl.intrinsicContentSize
+        spanControl.frame = NSRect(x: bounds.maxX - size.width - 20, y: bounds.maxY - size.height - 22,
+                                   width: size.width, height: size.height)
+    }
+
+    @objc private func spanChanged() {
+        PowerSpan.current = PowerSpan.options[spanControl.selectedSegment].seconds
+        needsDisplay = true
+        onSpanChange?()
+    }
+
+    /// 当前选中的那一段
+    private var visible: PowerHistory { history.limited(to: PowerSpan.current) }
 
     private let inset = NSEdgeInsets(top: 62, left: 56, bottom: 46, right: 20)
 
@@ -79,8 +116,9 @@ final class PowerChartView: NSView {
         drawHeader()
         guard plot.width > 20, plot.height > 20 else { return }
 
-        let values = history.curve(points: max(2, Int(plot.width / 2)))
-        guard values.count > 1, let low = values.min(), let high = values.max() else {
+        let values = visible.curve(points: max(2, Int(plot.width / 2)))
+        let known = values.compactMap { $0 }
+        guard values.count > 1, known.count > 1, let low = known.min(), let high = known.max() else {
             drawPlaceholder(in: plot)
             return
         }
@@ -93,11 +131,11 @@ final class PowerChartView: NSView {
     }
 
     private func drawHeader() {
-        let current = history.latest.map { PowerMeter.wattsText($0) } ?? "读不到"
+        let current = visible.latest.map { PowerMeter.wattsText($0) } ?? "读不到"
         // 字号和面板、灵动岛一致：标题 semibold，副文案 11pt 次要色
         draw(current, at: NSPoint(x: inset.left, y: bounds.maxY - 40),
              font: .systemFont(ofSize: 24, weight: .semibold), color: .labelColor)
-        draw(PowerMeter.statsText(history) ?? "", at: NSPoint(x: inset.left, y: bounds.maxY - 58),
+        draw(PowerMeter.statsText(visible) ?? "", at: NSPoint(x: inset.left, y: bounds.maxY - 58),
              font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
     }
 
@@ -122,31 +160,35 @@ final class PowerChartView: NSView {
         }
     }
 
-    private func drawCurve(_ values: [Double], in plot: NSRect, bottom: Double, top: Double) {
-        let path = NSBezierPath()
+    /// 有数据的连续段各画各的：应用没开、Mac 睡着的那几段留白，不画成直线
+    private func drawCurve(_ values: [Double?], in plot: NSRect, bottom: Double, top: Double) {
         let step = plot.width / CGFloat(values.count - 1)
-        for (i, value) in values.enumerated() {
-            let ratio = (value - bottom) / (top - bottom)
-            let point = NSPoint(x: plot.minX + CGFloat(i) * step,
-                                y: plot.minY + plot.height * CGFloat(ratio))
-            if i == 0 { path.move(to: point) } else { path.line(to: point) }
+        func point(_ i: Int, _ value: Double) -> NSPoint {
+            NSPoint(x: plot.minX + CGFloat(i) * step,
+                    y: plot.minY + plot.height * CGFloat((value - bottom) / (top - bottom)))
         }
-        let fill = path.copy() as! NSBezierPath
-        fill.line(to: NSPoint(x: plot.maxX, y: plot.minY))
-        fill.line(to: NSPoint(x: plot.minX, y: plot.minY))
-        fill.close()
-        NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
-        fill.fill()
+        for segment in PowerChart.segments(values) {
+            let path = NSBezierPath()
+            for (n, i) in segment.enumerated() {
+                let p = point(i, values[i]!)
+                if n == 0 { path.move(to: p) } else { path.line(to: p) }
+            }
+            let fill = path.copy() as! NSBezierPath
+            fill.line(to: NSPoint(x: point(segment.last!, values[segment.last!]!).x, y: plot.minY))
+            fill.line(to: NSPoint(x: point(segment.first!, values[segment.first!]!).x, y: plot.minY))
+            fill.close()
+            NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
+            fill.fill()
 
-        NSColor.controlAccentColor.setStroke()
-        path.lineWidth = 2
-        path.lineJoinStyle = .round
-        path.stroke()
+            NSColor.controlAccentColor.setStroke()
+            path.lineWidth = 2
+            path.lineJoinStyle = .round
+            path.stroke()
+        }
     }
 
     private func drawTimeAxis(in plot: NSRect) {
-        let minutes = max(1, Int(history.span / 60))
-        draw("\(minutes) 分钟前", at: NSPoint(x: plot.minX, y: plot.minY - 20),
+        draw("\(PowerHistory.spanText(visible.span))前", at: NSPoint(x: plot.minX, y: plot.minY - 20),
              font: .systemFont(ofSize: 10), color: .tertiaryLabelColor)
         draw("现在", at: NSPoint(x: plot.maxX - 24, y: plot.minY - 20),
              font: .systemFont(ofSize: 10), color: .tertiaryLabelColor)
@@ -176,11 +218,13 @@ final class PowerChartView: NSView {
     /// 调试：拿一段合成数据把窗口画成 PNG，方便看排版
     static func renderPreview(toDirectory dir: String) {
         var history = PowerHistory()
-        let start = Date().addingTimeInterval(-1800)
-        for i in 0..<180 {
-            let t = Double(i) / 180
-            let watts = 9 + 6 * sin(t * 7) + (t > 0.6 && t < 0.75 ? 14 : 0) + Double.random(in: -0.6...0.6)
-            history.add(watts: watts, at: start.addingTimeInterval(Double(i) * 10))
+        let start = Date().addingTimeInterval(-24 * 3600)
+        for minute in 0..<(24 * 60) {
+            let t = Double(minute) / Double(24 * 60)
+            // 夜里合盖睡了六小时：这一段没有采样，曲线应该断开
+            if t > 0.12, t < 0.37 { continue }
+            let watts = 9 + 5 * sin(t * 18) + (t > 0.72 && t < 0.78 ? 13 : 0) + Double.random(in: -0.8...0.8)
+            history.add(watts: watts, at: start.addingTimeInterval(Double(minute) * 60))
         }
         for (name, appearance) in [("power-window", NSAppearance(named: .aqua)),
                                    ("power-window-dark", NSAppearance(named: .darkAqua))] {
@@ -188,6 +232,7 @@ final class PowerChartView: NSView {
             view.appearance = appearance
             view.history = history
             view.footnote = "本次喵住 1.6 Wh · 今天记录 12.4 Wh"
+            view.layoutSubtreeIfNeeded()
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?

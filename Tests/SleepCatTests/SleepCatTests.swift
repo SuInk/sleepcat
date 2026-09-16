@@ -737,14 +737,66 @@ import AppKit
         return history
     }
 
-    @Test func keepsOnlyTheLastHour() {
+    @Test func keepsOnlyTheLastDay() {
         var history = PowerHistory()
         history.add(watts: 5, at: start)
-        history.add(watts: 6, at: start.addingTimeInterval(1800))
-        history.add(watts: 7, at: start.addingTimeInterval(3700))   // 第一个点已经超过一小时
+        history.add(watts: 6, at: start.addingTimeInterval(12 * 3600))
+        history.add(watts: 7, at: start.addingTimeInterval(24 * 3600 + 60))   // 第一个点已经超过 24 小时
         #expect(history.samples.count == 2)
         #expect(history.samples.first?.watts == 6)
         #expect(history.latest == 7)
+    }
+
+    @Test func gapsStayEmptyInsteadOfDrawingAStraightLine() {
+        // 应用没开 / Mac 睡着的那几个小时是断的，补成直线会让人以为一直在耗电
+        var history = PowerHistory()
+        for i in 0..<10 { history.add(watts: 10, at: start.addingTimeInterval(Double(i) * 60)) }
+        for i in 0..<10 { history.add(watts: 20, at: start.addingTimeInterval(7200 + Double(i) * 60)) }
+        let curve = history.curve(points: 60, now: start.addingTimeInterval(7800))
+        #expect(curve.contains { $0 == nil }, "中间那段必须是空的")
+        let segments = PowerChart.segments(curve)
+        #expect(segments.count == 2, "应该画成两段，实际 \(segments.count) 段")
+    }
+
+    @Test func limitedKeepsOnlyTheChosenSpan() {
+        var history = PowerHistory()
+        let now = start.addingTimeInterval(12 * 3600)
+        history.add(watts: 5, at: now.addingTimeInterval(-10 * 3600))
+        history.add(watts: 8, at: now.addingTimeInterval(-90 * 60))
+        history.add(watts: 12, at: now.addingTimeInterval(-30 * 60))
+        #expect(history.limited(to: 3600, now: now).samples.count == 1)
+        #expect(history.limited(to: 6 * 3600, now: now).samples.count == 2)
+        #expect(history.limited(to: 24 * 3600, now: now).samples.count == 3)
+        #expect(history.limited(to: 3600, now: now).latest == 12)
+    }
+
+    @Test func spanOptionsAreSaneAndLabelled() {
+        #expect(PowerSpan.options.map(\.seconds) == [3600, 21600, 86400])
+        #expect(PowerSpan.options.allSatisfy { $0.seconds <= PowerHistory.window }, "跨度不能超过留存的窗口")
+        #expect(PowerSpan.label(for: 6 * 3600) == "6 小时")
+        #expect(PowerSpan.label(for: 999) == "1 小时", "存了个没见过的值就退回默认")
+    }
+
+    @Test func spanTextSwitchesToHours() {
+        #expect(PowerHistory.spanText(90) == "2 分钟")
+        #expect(PowerHistory.spanText(1800) == "30 分钟")
+        #expect(PowerHistory.spanText(3 * 3600 + 1800) == "3.5 小时")
+        #expect(PowerHistory.spanText(24 * 3600) == "24 小时")
+    }
+
+    @Test func samplesSurviveARestart() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sleepcat-samples-\(UUID().uuidString)/功耗采样.csv")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let now = Date()
+        PowerLog.appendSample(watts: 11.5, at: now.addingTimeInterval(-600), to: url)
+        PowerLog.appendSample(watts: 9.25, at: now.addingTimeInterval(-300), to: url)
+        PowerLog.appendSample(watts: 8, at: now.addingTimeInterval(-40 * 3600), to: url)   // 超过 24 小时
+
+        let history = PowerLog.loadHistory(now: now, from: url)
+        #expect(history.samples.count == 2, "太老的采样不该读回来")
+        #expect(history.latest == 9.25)
+        #expect(history.lowest == 9.25 && history.highest == 11.5)
     }
 
     @Test func averageIsTimeWeighted() {
@@ -763,10 +815,10 @@ import AppKit
         let now = start.addingTimeInterval(1190)
         let curve = history.curve(points: 100, now: now)
         #expect(curve.count == 100)
-        #expect(abs(curve.first! - 8) < 0.001, "开头就是第一个采样值")
-        #expect(abs(curve.last! - 20) < 0.001, "结尾是最新的采样值")
+        #expect(abs(curve.first!! - 8) < 0.001, "开头就是第一个采样值")
+        #expect(abs(curve.last!! - 20) < 0.001, "结尾是最新的采样值")
         // 跳变应该落在中间附近，而不是被挤到右边
-        let jump = curve.firstIndex { $0 > 14 } ?? 0
+        let jump = curve.firstIndex { ($0 ?? 0) > 14 } ?? 0
         #expect(jump > 40 && jump < 60, "跳变位置 \(jump)")
     }
 

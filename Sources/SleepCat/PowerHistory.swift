@@ -4,13 +4,13 @@
 
 import AppKit
 
-/// 最近一小时的功耗采样，菜单里画成折线图用。
-/// 只放在内存里：关掉应用就没了，长期数据看 CSV 记录
+/// 最近 24 小时的功耗采样，菜单和曲线窗口用。
+/// 每分钟往磁盘写一条，重启、更新之后曲线还在（见 PowerLog.appendSample）
 struct PowerHistory {
     /// 留多久的数据
-    static let window: TimeInterval = 3600
+    static let window: TimeInterval = 24 * 3600
 
-    private(set) var samples: [(time: Date, watts: Double)] = []
+    fileprivate(set) var samples: [(time: Date, watts: Double)] = []
 
     mutating func add(watts: Double, at now: Date = Date()) {
         samples.append((now, watts))
@@ -19,6 +19,15 @@ struct PowerHistory {
         if let keep = samples.firstIndex(where: { $0.time >= cutoff }), keep > 0 {
             samples.removeFirst(keep)
         }
+    }
+
+    /// 只要最近这一段（曲线跨度切换用）。纯函数，便于测试
+    func limited(to seconds: TimeInterval, now: Date = Date()) -> PowerHistory {
+        guard seconds < Self.window else { return self }
+        let cutoff = now.addingTimeInterval(-seconds)
+        var trimmed = PowerHistory()
+        trimmed.samples = samples.filter { $0.time >= cutoff }
+        return trimmed
     }
 
     var isEmpty: Bool { samples.isEmpty }
@@ -42,28 +51,44 @@ struct PowerHistory {
         return seconds > 0 ? energy / seconds : first.watts
     }
 
-    /// 把采样压成 count 个点用来画线：每格取平均，空格子用前后值补上。
-    /// 纯函数，便于测试
-    func curve(points count: Int, now: Date = Date()) -> [Double] {
+    /// 采样之间隔多久算「断了」。内存里 10 秒一个点、磁盘上 1 分钟一个点，
+    /// 5 分钟足够区分「正常采样」和「应用没开 / Mac 睡着」
+    static let maxGap: TimeInterval = 300
+
+    /// 把采样重采成 count 个点用来画线：格子落在两个采样之间就线性插值。
+    /// 真正断开的地方（超过 maxGap 没有数据）返回 nil，画的时候留白——
+    /// 拿前一个值补成直线会让人以为那会儿一直在耗这么多电。纯函数，便于测试
+    func curve(points count: Int, now: Date = Date()) -> [Double?] {
         guard count > 0, let first = samples.first else { return [] }
-        // 起点是第一个采样，不是「一小时前」：只采了十分钟就不该在左边画出五十分钟的假平线
+        // 起点是第一个采样，不是「24 小时前」：只采了十分钟就不该在左边画出一大片假曲线
         let start = max(first.time, now.addingTimeInterval(-Self.window))
         let duration = max(1, now.timeIntervalSince(start))
-        var sums = [Double](repeating: 0, count: count)
-        var hits = [Int](repeating: 0, count: count)
-        for sample in samples {
-            let ratio = sample.time.timeIntervalSince(start) / duration
-            let slot = min(count - 1, max(0, Int(ratio * Double(count))))
-            sums[slot] += sample.watts
-            hits[slot] += 1
-        }
-        var curve = [Double]()
-        var carry = samples.first?.watts ?? 0
+        var result = [Double?](repeating: nil, count: count)
+        var index = 0
         for i in 0..<count {
-            if hits[i] > 0 { carry = sums[i] / Double(hits[i]) }
-            curve.append(carry)
+            let time = start.addingTimeInterval(duration * (Double(i) + 0.5) / Double(count))
+            while index + 1 < samples.count, samples[index + 1].time <= time { index += 1 }
+            let previous = samples[index]
+            let next = index + 1 < samples.count ? samples[index + 1] : nil
+            if let next, time >= previous.time {
+                let gap = next.time.timeIntervalSince(previous.time)
+                if gap <= Self.maxGap {
+                    let ratio = gap > 0 ? time.timeIntervalSince(previous.time) / gap : 0
+                    result[i] = previous.watts + (next.watts - previous.watts) * ratio
+                }
+            } else if abs(time.timeIntervalSince(previous.time)) <= Self.maxGap {
+                result[i] = previous.watts   // 曲线两头：贴着最近的那个采样
+            }
         }
-        return curve
+        return result
+    }
+
+    /// 跨度的说法：不到一小时说分钟，超过就说小时。菜单和窗口共用
+    static func spanText(_ seconds: TimeInterval) -> String {
+        let minutes = Int((seconds / 60).rounded())
+        if minutes < 60 { return "\(max(1, minutes)) 分钟" }
+        let hours = Double(minutes) / 60
+        return hours < 10 ? String(format: "%.1f 小时", hours) : "\(Int(hours.rounded())) 小时"
     }
 }
 
@@ -74,36 +99,72 @@ enum PowerChart {
     /// 画折线 + 填充。菜单条目的图会在展示时才绘制，所以深浅色会自动跟着系统走
     static func image(for history: PowerHistory, size: NSSize = size) -> NSImage? {
         let values = history.curve(points: Int(size.width / 2))
-        guard values.count > 1 else { return nil }
-        let lowest = values.min() ?? 0
-        let highest = values.max() ?? 1
+        let known = values.compactMap { $0 }
+        guard values.count > 1, known.count > 1 else { return nil }
+        let lowest = known.min() ?? 0
+        let highest = known.max() ?? 1
         // 上下各留一点余量，曲线不会贴边；全程恒定时画在中间
         let span = max(1.0, highest - lowest)
         let bottom = lowest - span * 0.25, top = highest + span * 0.25
 
         return NSImage(size: size, flipped: false) { rect in
-            let path = NSBezierPath()
             let step = rect.width / CGFloat(values.count - 1)
-            for (i, value) in values.enumerated() {
-                let ratio = (value - bottom) / (top - bottom)
-                let point = NSPoint(x: rect.minX + CGFloat(i) * step,
-                                    y: rect.minY + rect.height * CGFloat(ratio))
-                if i == 0 { path.move(to: point) } else { path.line(to: point) }
+            func point(_ i: Int, _ value: Double) -> NSPoint {
+                NSPoint(x: rect.minX + CGFloat(i) * step,
+                        y: rect.minY + rect.height * CGFloat((value - bottom) / (top - bottom)))
             }
+            // 有数据的连续段各画各的，中间断开的地方留白
+            for segment in PowerChart.segments(values) {
+                let path = NSBezierPath()
+                for (n, i) in segment.enumerated() {
+                    let p = point(i, values[i]!)
+                    if n == 0 { path.move(to: p) } else { path.line(to: p) }
+                }
+                let fill = path.copy() as! NSBezierPath
+                fill.line(to: NSPoint(x: point(segment.last!, values[segment.last!]!).x, y: rect.minY))
+                fill.line(to: NSPoint(x: point(segment.first!, values[segment.first!]!).x, y: rect.minY))
+                fill.close()
+                NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+                fill.fill()
 
-            // 线下方填一层淡色，读数走势一眼能看出来
-            let fill = path.copy() as! NSBezierPath
-            fill.line(to: NSPoint(x: rect.maxX, y: rect.minY))
-            fill.line(to: NSPoint(x: rect.minX, y: rect.minY))
-            fill.close()
-            NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
-            fill.fill()
-
-            NSColor.controlAccentColor.setStroke()
-            path.lineWidth = 1.5
-            path.lineJoinStyle = .round
-            path.stroke()
+                NSColor.controlAccentColor.setStroke()
+                path.lineWidth = 1.5
+                path.lineJoinStyle = .round
+                path.stroke()
+            }
             return true
         }
+    }
+
+    /// 把带空洞的曲线切成一段段连续下标。纯函数，便于测试
+    static func segments(_ values: [Double?]) -> [[Int]] {
+        var result: [[Int]] = []
+        var current: [Int] = []
+        for (i, value) in values.enumerated() {
+            if value != nil { current.append(i) }
+            else if current.count > 1 { result.append(current); current = [] }
+            else { current = [] }
+        }
+        if current.count > 1 { result.append(current) }
+        return result
+    }
+}
+
+/// 曲线看多长一段。菜单和窗口共用这一个设置
+enum PowerSpan {
+    static let options: [(label: String, seconds: TimeInterval)] = [
+        ("1 小时", 3600), ("6 小时", 6 * 3600), ("24 小时", 24 * 3600),
+    ]
+
+    static var current: TimeInterval {
+        get {
+            let saved = UserDefaults.standard.double(forKey: "powerChartSpan")
+            return options.contains { $0.seconds == saved } ? saved : 3600
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "powerChartSpan") }
+    }
+
+    static func label(for seconds: TimeInterval) -> String {
+        options.first { $0.seconds == seconds }?.label ?? options[0].label
     }
 }

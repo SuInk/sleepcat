@@ -58,7 +58,10 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var powerSession: PowerSession?   // 本次喵住的功耗统计
     private var powerTimer: Timer?
     private var latestWatts: Double?
-    private var powerHistory = PowerHistory()   // 近一小时的采样，菜单里画曲线
+    private var powerHistory = PowerHistory()   // 近 24 小时的采样，菜单和窗口画曲线
+    private var minuteSum = 0.0                 // 每分钟往磁盘写一条，不是每次采样都写
+    private var minuteCount = 0
+    private var minuteStart = Date()
     /// 喵住结束后把这次的功耗写进 CSV 记录
     private var powerLoggingEnabled: Bool {
         get { UserDefaults.standard.object(forKey: "powerLoggingEnabled") as? Bool ?? true }
@@ -133,6 +136,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateLegacyDefaults()   // 必须在读任何设置之前
         Notifier.shared.setUp()
+        powerHistory = PowerLog.loadHistory()   // 接上重启前的曲线
         startPowerSampling()
         if lowBatteryThreshold != nil, BatteryMonitor.read() != nil {
             Notifier.shared.requestAuthorizationIfNeeded()
@@ -445,6 +449,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = Date()
         latestWatts = watts
         powerHistory.add(watts: watts, at: now)
+        // 攒够一分钟写一条：一天 1440 行，文件小、重启后曲线能接上
+        minuteSum += watts
+        minuteCount += 1
+        if now.timeIntervalSince(minuteStart) >= 60, minuteCount > 0 {
+            PowerLog.appendSample(watts: minuteSum / Double(minuteCount), at: now)
+            minuteSum = 0
+            minuteCount = 0
+            minuteStart = now
+        }
         if blocker.isActive {
             if powerSession == nil { powerSession = PowerSession(watts: watts, at: now) }
             else { powerSession?.add(watts: watts, at: now) }
@@ -487,6 +500,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("记录文件：\(PowerLog.fileURL.path)")
             exit(0)
         }
+    }
+
+    @objc private func noop() {}
+
+    @objc private func setPowerSpan(_ sender: NSMenuItem) {
+        PowerSpan.current = TimeInterval(sender.tag)
     }
 
     @objc private func openPowerWindow() {
@@ -780,14 +799,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(nowItem)
 
         // 曲线：采满两个点才画得出来
-        if let chart = PowerChart.image(for: powerHistory) {
+        let visible = powerHistory.limited(to: PowerSpan.current)
+        if let chart = PowerChart.image(for: visible) {
             let chartItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
             chartItem.image = chart
             chartItem.isEnabled = false
             sub.addItem(chartItem)
-            if let stats = PowerMeter.statsText(powerHistory) {
-                let minutes = max(1, Int(powerHistory.span / 60))
-                let stats = NSMenuItem(title: "近 \(minutes) 分钟　\(stats)", action: nil, keyEquivalent: "")
+            if let text = PowerMeter.statsText(visible) {
+                let stats = NSMenuItem(title: "近 \(PowerHistory.spanText(visible.span))　\(text)",
+                                       action: nil, keyEquivalent: "")
                 stats.isEnabled = false
                 stats.attributedTitle = NSAttributedString(string: stats.title, attributes: [
                     .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
@@ -806,6 +826,17 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         logging.state = powerLoggingEnabled ? .on : .off
         logging.toolTip = "喵住结束时往 CSV 记一行：时长、用电量、平均和峰值功耗"
         sub.addItem(logging)
+        let spanRoot = makeItem("曲线跨度（\(PowerSpan.label(for: PowerSpan.current))）", #selector(noop), symbol: "clock.arrow.circlepath")
+        spanRoot.action = nil
+        let spanMenu = NSMenu()
+        for (label, seconds) in PowerSpan.options {
+            let option = makeItem(label, #selector(setPowerSpan(_:)))
+            option.tag = Int(seconds)
+            option.state = PowerSpan.current == seconds ? .on : .off
+            spanMenu.addItem(option)
+        }
+        sub.addItem(spanRoot)
+        sub.setSubmenu(spanMenu, for: spanRoot)
         sub.addItem(makeItem("功耗曲线…", #selector(openPowerWindow), symbol: "chart.xyaxis.line"))
         sub.addItem(makeItem("在访达中显示记录…", #selector(openPowerLog), symbol: "folder"))
         item.submenu = sub

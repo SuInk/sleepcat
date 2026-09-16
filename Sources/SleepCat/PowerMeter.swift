@@ -104,7 +104,7 @@ enum PowerLog {
         write(line: session.csvLine(formatter: f), to: url)
     }
 
-    static func write(line: String, to url: URL) {
+    static func write(line: String, to url: URL, header: String = header) {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
@@ -118,6 +118,45 @@ enum PowerLog {
             try handle.write(contentsOf: Data((line + "\n").utf8))
         } catch {
             LidBlocker.log("功耗记录写入失败：\(error.localizedDescription)")
+        }
+    }
+
+    // MARK: 采样文件（给 24 小时曲线用）
+
+    /// 每分钟一条，重启后曲线还能接上。和给人看的「功耗记录.csv」分开放：
+    /// 这个是程序自己读的，时间用 Unix 时间戳，省得来回解析本地时间
+    static var samplesURL: URL { fileURL.deletingLastPathComponent().appendingPathComponent("功耗采样.csv") }
+    static let samplesHeader = "时间戳,功耗W"
+
+    static func appendSample(watts: Double, at time: Date = Date(), to url: URL = samplesURL) {
+        write(line: String(format: "%.0f,%.2f", time.timeIntervalSince1970, watts), to: url, header: samplesHeader)
+    }
+
+    /// 读回最近 24 小时的采样；顺带把过期的行清掉，文件不会无限长
+    static func loadHistory(now: Date = Date(), from url: URL = samplesURL) -> PowerHistory {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return PowerHistory() }
+        let kept = parseSamples(text, now: now)
+        var history = PowerHistory()
+        for sample in kept { history.add(watts: sample.watts, at: sample.time) }
+        // 行数明显多于窗口内的量就重写一遍（一天 1440 行，超过两天份就整理）
+        if text.split(separator: "\n").count > kept.count + 1440 {
+            let body = kept.map { String(format: "%.0f,%.2f", $0.time.timeIntervalSince1970, $0.watts) }
+            try? ("\u{feff}\(samplesHeader)\n" + body.joined(separator: "\n") + "\n")
+                .write(to: url, atomically: true, encoding: .utf8)
+        }
+        return history
+    }
+
+    /// 纯函数，便于测试
+    static func parseSamples(_ text: String, now: Date,
+                             window: TimeInterval = PowerHistory.window) -> [(time: Date, watts: Double)] {
+        let cutoff = now.addingTimeInterval(-window)
+        return text.split(separator: "\n").compactMap { line in
+            let cells = line.split(separator: ",")
+            guard cells.count >= 2, let epoch = Double(cells[0]), let watts = Double(cells[1]) else { return nil }
+            let time = Date(timeIntervalSince1970: epoch)
+            guard time >= cutoff, time <= now.addingTimeInterval(60) else { return nil }
+            return (time, watts)
         }
     }
 
