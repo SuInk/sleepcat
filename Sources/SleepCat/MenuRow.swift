@@ -123,3 +123,84 @@ final class MenuRow: NSView {
     }
 
 }
+
+/// 打开窗口的入口行：图标 + 文字 + 行尾箭头，点了关菜单。
+///
+/// 标准菜单项的右边距比面板宽，箭头用制表位怎么推都差面板右边缘几个点，
+/// 所以自己画，箭头的右边缘和上面面板、分隔线的右端对齐。
+/// 位置按没有勾选列的菜单量的（功耗子菜单就是这样），用 --snapshot-align --power-only 检查
+final class LinkRow: NSView {
+    private enum Metrics {
+        static let height: CGFloat = 22
+        static let icon: CGFloat = 15
+        static let title: CGFloat = 40
+        static let trailing: CGFloat = 14.5
+    }
+
+    private let symbol: NSImage?
+    private let title: String
+    private let action: () -> Void
+    private var hovering = false
+
+    init(symbol: NSImage?, title: String, action: @escaping () -> Void) {
+        self.symbol = symbol
+        self.title = title
+        self.action = action
+        let text = NSAttributedString(string: title, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+        super.init(frame: NSRect(x: 0, y: 0, width: Metrics.title + ceil(text.size().width) + 40,
+                                 height: Metrics.height))
+        autoresizingMask = [.width]
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hovering {
+            NSColor.selectedContentBackgroundColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 0), xRadius: 5, yRadius: 5).fill()
+        }
+        let ink = hovering ? NSColor.selectedMenuItemTextColor : NSColor.labelColor
+        if let symbol {
+            tinted(symbol, ink).draw(in: NSRect(x: Metrics.icon, y: (bounds.height - symbol.size.height) / 2,
+                                                width: symbol.size.width, height: symbol.size.height))
+        }
+        NSAttributedString(string: title, attributes: [
+            .font: NSFont.menuFont(ofSize: 0), .foregroundColor: ink,
+        ]).draw(at: NSPoint(x: Metrics.title, y: 3))
+        if let chevron = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold)) {
+            let size = chevron.size
+            tinted(chevron, hovering ? ink : .secondaryLabelColor)
+                .draw(in: NSRect(x: bounds.width - Metrics.trailing - size.width, y: (bounds.height - size.height) / 2,
+                                 width: size.width, height: size.height))
+        }
+    }
+
+    /// 模板图要在透明底上染色，直接在视图里 sourceAtop 会把整块涂掉
+    private func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
+        NSImage(size: image.size, flipped: false) { rect in
+            image.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds,
+                                       options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
+
+    /// 和标准菜单项一样：点完菜单收起，再去开窗口
+    override func mouseUp(with event: NSEvent) {
+        hovering = false
+        enclosingMenuItem?.menu?.cancelTracking()
+        DispatchQueue.main.async(execute: action)
+    }
+}

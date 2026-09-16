@@ -800,7 +800,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sub.addItem(summary)
         powerSummary = panel
         sub.addItem(.separator())
-        sub.addItem(makeItem("功耗曲线…", #selector(openPowerWindow), symbol: "chart.xyaxis.line"))
+        let chart = NSMenuItem(title: "功耗曲线…", action: nil, keyEquivalent: "")
+        chart.view = LinkRow(symbol: symbol("chart.xyaxis.line"), title: chart.title) { [weak self] in
+            self?.openPowerWindow()
+        }
+        sub.addItem(chart)
         item.submenu = sub
         return item
     }
@@ -1516,6 +1520,9 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-align") {
         let chart = NSMenuItem(title: "功耗曲线…", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         chart.image = NSImage(systemSymbolName: "chart.xyaxis.line", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .regular)).map(SleepCatApp.fitIcon)
+        // 实际菜单里用的是自绘行（箭头要贴到面板右边缘）；上面的原生行留作图标位置的参照
+        let link = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        link.view = LinkRow(symbol: chart.image, title: "功耗曲线…", action: {})
         menu.addItem(chart)
         // 真实的功耗子菜单里没有带勾的行，系统可能不留勾那一列：单独弹一个一模一样的菜单再比一次
         if CommandLine.arguments.contains("--power-only") {
@@ -1523,7 +1530,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-align") {
             menu.removeAllItems()
             menu.addItem(panel)
             menu.addItem(.separator())
-            menu.addItem(chart)
+            menu.addItem(link)
         }
         let timer = Timer(timeInterval: 0.6, repeats: false) { _ in
             for window in NSApp.windows where window.isVisible {
