@@ -965,3 +965,17 @@ import AppKit
         #expect(before == after, "没有要删的就不该重写文件")
     }
 }
+
+@Suite struct ThresholdPickerTests {
+    @Test func customThresholdStaysInRange() {
+        #expect(ThresholdPicker.clamp(0) == 5)
+        #expect(ThresholdPicker.clamp(15) == 15)
+        #expect(ThresholdPicker.clamp(99) == 90)
+        #expect(ThresholdPicker.hintText(percent: 15) == "用电池时低于 15% 暂停喵住")
+    }
+
+    @Test @MainActor func menuTextForThreshold() {
+        #expect(SleepCatApp.thresholdText(15) == "低于 15%")
+        #expect(SleepCatApp.thresholdText(nil) == "已关闭")
+    }
+}

@@ -82,11 +82,16 @@ final class DurationPicker: NSObject, NSTextFieldDelegate {
 
     /// NSAlert 把附加视图摆得比标题文字靠左几个点，输入框看着和标题没对齐；按标题的实际位置补齐
     func alignLeadingEdge(to alert: NSAlert) {
+        Self.alignLeadingEdge(of: view, field: hoursField, to: alert)
+    }
+
+    /// 同上，给别的对话框（比如自定义电量阈值）共用
+    static func alignLeadingEdge(of view: NSStackView, field: NSView, to alert: NSAlert) {
         alert.layout()
         guard let content = alert.window.contentView,
-              let title = Self.label(withText: alert.messageText, in: content) else { return }
+              let title = label(withText: alert.messageText, in: content) else { return }
         let titleX = title.convert(title.bounds, to: nil).minX
-        let fieldX = hoursField.convert(hoursField.bounds, to: nil).minX
+        let fieldX = field.convert(field.bounds, to: nil).minX
         let delta = (titleX - fieldX).rounded()
         guard delta > 0 else { return }
         // 只加内边距、不加宽：视图一变宽 NSAlert 会把它往左挪，抵掉一半

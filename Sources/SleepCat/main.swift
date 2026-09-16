@@ -634,15 +634,28 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lowItem.attributedTitle = Self.trailingTitle("低电量自动暂停", value: Self.thresholdText(lowBatteryThreshold))
             lowItem.toolTip = "只在用电池时生效；插上电源后会自动恢复喵住"
             let thresholds = NSMenu()
-            for (label, value) in [("关闭", 0), ("低于 10%", 10), ("低于 20%", 20), ("低于 30%", 30)] {
+            let presets = [("关闭", 0), ("低于 10%", 10), ("低于 20%", 20), ("低于 30%", 30)]
+            // 自定义…：选的值不在档位里时打勾，括号里写出来
+            let custom = makeItem("自定义…", #selector(menuCustomLowBattery))
+            let syncCustom = { [weak self] in
+                let current = self?.lowBatteryThreshold
+                let customValue = current.flatMap { v in presets.contains { $0.1 == v } ? nil : v }
+                custom.title = customValue.map { "自定义（\($0)%）…" } ?? "自定义…"
+                custom.state = customValue != nil ? .on : .off
+            }
+            syncCustom()
+            for (label, value) in presets {
                 thresholds.addItem(makeToggleItem(label, symbol: nil,
                                                   isOn: { [weak self] in (self?.lowBatteryThreshold ?? 0) == value },
                                                   action: { [weak self] in
                     self?.applyLowBatteryThreshold(value == 0 ? nil : value)
                     lowItem.attributedTitle = Self.trailingTitle("低电量自动暂停",
                                                                  value: Self.thresholdText(value == 0 ? nil : value))
+                    syncCustom()
                 }))
             }
+            thresholds.addItem(.separator())
+            thresholds.addItem(custom)
             if lowBatteryThreshold != nil, Notifier.shared.isDenied {
                 thresholds.addItem(.separator())
                 let notify = makeItem("打开通知提醒…", #selector(openNotificationSettings))
@@ -1125,6 +1138,41 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = alert.runModal()
     }
 
+    static func makeCustomThresholdAlert(percent: Int) -> (NSAlert, ThresholdPicker) {
+        let picker = ThresholdPicker(percent: percent)
+        let alert = NSAlert()
+        alert.messageText = "自定义低电量阈值"
+        alert.informativeText = "插上电源后会自动恢复喵住。"
+        alert.accessoryView = picker.view
+        alert.addButton(withTitle: "确定")
+        alert.addButton(withTitle: "取消")
+        alert.buttons[1].keyEquivalent = "\u{1b}"   // Esc 取消
+        DurationPicker.alignLeadingEdge(of: picker.view, field: picker.field, to: alert)
+        alert.window.initialFirstResponder = picker.field
+        return (alert, picker)
+    }
+
+    /// 调试用：把任意对话框画成 PNG 后关掉
+    static func snapshotAlert(_ alert: NSAlert, toDirectory dir: String, name: String) {
+        let timer = Timer(timeInterval: 0.6, repeats: false) { _ in
+            if let view = alert.window.contentView?.superview,
+               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
+            }
+            NSApp.abortModal()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        _ = alert.runModal()
+    }
+
+    @objc private func menuCustomLowBattery() {
+        NSApp.activate(ignoringOtherApps: true)
+        let (alert, picker) = Self.makeCustomThresholdAlert(percent: lowBatteryThreshold ?? 15)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        applyLowBatteryThreshold(picker.percent)
+    }
+
     @objc private func menuActivateCustom() {
         NSApp.activate(ignoringOtherApps: true)
         let (alert, picker) = Self.makeCustomDurationAlert(minutes: lastCustomMinutes)
@@ -1462,6 +1510,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot-duration") {
     DispatchQueue.main.async {
         SleepCatApp.snapshotCustomDurationAlert(toDirectory: dir, dark: false)
         SleepCatApp.snapshotCustomDurationAlert(toDirectory: dir, dark: true)
+        SleepCatApp.snapshotAlert(SleepCatApp.makeCustomThresholdAlert(percent: 15).0, toDirectory: dir, name: "threshold-alert-dark")
         exit(0)
     }
     NSApplication.shared.run()
