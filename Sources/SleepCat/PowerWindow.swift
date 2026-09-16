@@ -12,12 +12,12 @@ final class PowerWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var chart: PowerChartView?
     private var timer: Timer?
-    private var source: (() -> (history: PowerHistory, footnote: String?))?
+    private var source: (() -> (history: PowerHistory, footnote: String?, awake: Bool))?
 
     /// - Parameters:
     ///   - history: 每次刷新时现取，窗口不自己存数据
     ///   - footnote: 底部那行（本次喵住 / 今天记录），文案和菜单里保持一致
-    func show(history: @escaping () -> (history: PowerHistory, footnote: String?)) {
+    func show(history: @escaping () -> (history: PowerHistory, footnote: String?, awake: Bool)) {
         source = history
         if let window {
             refresh()
@@ -50,6 +50,7 @@ final class PowerWindowController: NSObject, NSWindowDelegate {
         let snapshot = source()
         chart?.history = snapshot.history
         chart?.footnote = snapshot.footnote
+        chart?.catAwake = snapshot.awake
         chart?.needsDisplay = true
     }
 
@@ -65,6 +66,8 @@ final class PowerChartView: NSView {
         didSet { needsDisplay = true }
     }
     var footnote: String?
+    /// 猫猫此刻是醒着（喵住中）还是在打盹，图标跟着菜单栏走
+    var catAwake = false
     /// 切换跨度后回调，让菜单那边也跟着变
     var onSpanChange: (() -> Void)?
 
@@ -101,7 +104,7 @@ final class PowerChartView: NSView {
     /// 当前选中的那一段
     private var visible: PowerHistory { history.limited(to: PowerSpan.current) }
 
-    private let inset = NSEdgeInsets(top: 62, left: 56, bottom: 46, right: 20)
+    private let inset = NSEdgeInsets(top: 78, left: 56, bottom: 54, right: 20)
 
     override var isFlipped: Bool { false }
 
@@ -113,6 +116,13 @@ final class PowerChartView: NSView {
                           y: bounds.minY + inset.bottom,
                           width: bounds.width - inset.left - inset.right,
                           height: bounds.height - inset.top - inset.bottom)
+        // 圆角卡片：和清洁键盘面板、灵动岛一个路子
+        let card = NSBezierPath(roundedRect: plot.insetBy(dx: -10, dy: -10), xRadius: 12, yRadius: 12)
+        NSColor.textBackgroundColor.withAlphaComponent(0.5).setFill()
+        card.fill()
+        NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
+        card.lineWidth = 1
+        card.stroke()
         drawHeader()
         guard plot.width > 20, plot.height > 20 else { return }
 
@@ -131,17 +141,32 @@ final class PowerChartView: NSView {
     }
 
     private func drawHeader() {
+        // 猫猫跟着菜单栏的状态走：喵住中是睁眼带 ！！，打盹中是闭眼带 Zz
+        let cat = catAwake ? CatIcon.awake : CatIcon.asleep
+        let scale: CGFloat = 1.7
+        let box = NSRect(x: inset.left, y: bounds.maxY - 46,
+                         width: cat.size.width * scale, height: cat.size.height * scale)
+        // 模板图要在透明底上染色：直接在窗口背景上 sourceAtop 会糊成一个黑方块
+        let tinted = NSImage(size: box.size, flipped: false) { rect in
+            cat.draw(in: rect)
+            NSColor.labelColor.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        tinted.draw(in: box)
+
+        let textX = box.maxX + 12
         let current = visible.latest.map { PowerMeter.wattsText($0) } ?? "读不到"
         // 字号和面板、灵动岛一致：标题 semibold，副文案 11pt 次要色
-        draw(current, at: NSPoint(x: inset.left, y: bounds.maxY - 40),
+        draw(current, at: NSPoint(x: textX, y: bounds.maxY - 42),
              font: .systemFont(ofSize: 24, weight: .semibold), color: .labelColor)
-        draw(PowerMeter.statsText(visible) ?? "", at: NSPoint(x: inset.left, y: bounds.maxY - 58),
+        draw(PowerMeter.statsText(visible) ?? "", at: NSPoint(x: textX, y: bounds.maxY - 61),
              font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
     }
 
     private func drawPlaceholder(in plot: NSRect) {
-        draw("还在采样，稍等一会儿就有曲线了",
-             at: NSPoint(x: plot.midX - 90, y: plot.midY), font: .systemFont(ofSize: 12), color: .tertiaryLabelColor)
+        draw("猫猫还在数电表，攒够一分钟就有曲线了",
+             at: NSPoint(x: plot.midX - 108, y: plot.midY), font: .systemFont(ofSize: 12), color: .tertiaryLabelColor)
     }
 
     private func drawGrid(in plot: NSRect, bottom: Double, top: Double, step: Double) {
@@ -188,9 +213,9 @@ final class PowerChartView: NSView {
     }
 
     private func drawTimeAxis(in plot: NSRect) {
-        draw("\(PowerHistory.spanText(visible.span))前", at: NSPoint(x: plot.minX, y: plot.minY - 20),
+        draw("\(PowerHistory.spanText(visible.span))前", at: NSPoint(x: plot.minX, y: plot.minY - 28),
              font: .systemFont(ofSize: 10), color: .tertiaryLabelColor)
-        draw("现在", at: NSPoint(x: plot.maxX - 24, y: plot.minY - 20),
+        draw("现在", at: NSPoint(x: plot.maxX - 24, y: plot.minY - 28),
              font: .systemFont(ofSize: 10), color: .tertiaryLabelColor)
         if let footnote {
             draw(footnote, at: NSPoint(x: inset.left, y: 8),
@@ -232,6 +257,7 @@ final class PowerChartView: NSView {
             view.appearance = appearance
             view.history = history
             view.footnote = "本次喵住 1.6 Wh · 今天记录 12.4 Wh"
+            view.catAwake = true
             view.layoutSubtreeIfNeeded()
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)

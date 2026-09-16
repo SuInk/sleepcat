@@ -510,7 +510,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openPowerWindow() {
         PowerWindowController.shared.show { [weak self] in
-            (self?.powerHistory ?? PowerHistory(), self?.powerFootnote())
+            (self?.powerHistory ?? PowerHistory(), self?.powerFootnote(), self?.blocker.isActive ?? false)
         }
     }
 
