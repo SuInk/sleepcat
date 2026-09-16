@@ -253,7 +253,8 @@ enum PowerAxis {
                           calendar: Calendar = .current) -> [Date] {
         let duration = end.timeIntervalSince(start)
         guard duration > 0 else { return [] }
-        let step = timeSteps.first { duration / $0 <= Double(maxTicks) } ?? timeSteps.last!
+        // 留一点余量：正好一小时的跨度会因为多出几毫秒被挤到下一档
+        let step = timeSteps.first { duration / $0 <= Double(maxTicks) + 0.05 } ?? timeSteps.last!
         // 按当地时间对齐到整点：从当天零点起算，往后找第一个整倍数
         let midnight = calendar.startOfDay(for: start)
         let offset = start.timeIntervalSince(midnight)
@@ -264,6 +265,17 @@ enum PowerAxis {
             tick = tick.addingTimeInterval(step)
         }
         return ticks
+    }
+
+    /// 给曲线用的刻度：换算成占宽度的比例。起点和曲线一致（第一个采样），终点是现在
+    static func relativeTicks(for history: PowerHistory, now: Date = Date(), maxTicks: Int,
+                              calendar: Calendar = .current) -> [(position: CGFloat, label: String)] {
+        guard let start = history.samples.first?.time else { return [] }
+        let duration = now.timeIntervalSince(start)
+        guard duration > 0 else { return [] }
+        return timeTicks(from: start, to: now, maxTicks: maxTicks, calendar: calendar).map {
+            (CGFloat($0.timeIntervalSince(start) / duration), timeLabel($0, calendar: calendar))
+        }
     }
 
     static func timeLabel(_ date: Date, calendar: Calendar = .current) -> String {

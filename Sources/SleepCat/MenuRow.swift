@@ -124,18 +124,19 @@ final class PowerSummaryView: NSView {
     private let current: String
     private let stats: String?
     private let chart: NSImage?
-    private let timeRange: (start: String, end: String)?
+    /// 横轴刻度：位置（0…1，占曲线宽度的比例）和标签
+    private let timeTicks: [(position: CGFloat, label: String)]
 
     /// 和 MenuRow 的图标列对齐
     private static let leading: CGFloat = 30
     private static let trailing: CGFloat = 20
 
     init(current: String, stats: String?, chart: NSImage?,
-         timeRange: (start: String, end: String)? = nil) {
+         timeTicks: [(position: CGFloat, label: String)] = []) {
         self.current = current
         self.stats = stats
         self.chart = chart
-        self.timeRange = timeRange
+        self.timeTicks = timeTicks
         super.init(frame: .zero)
         let chartHeight = chart?.size.height ?? 0
         // 宽度按最宽的那行算，不然统计那行会被截掉
@@ -152,7 +153,7 @@ final class PowerSummaryView: NSView {
         var height: CGFloat = 26                                  // 当前读数
         if stats != nil { height += 16 }
         if chart != nil { height += chartHeight + 8 }
-        if chart != nil, timeRange != nil { height += 13 }
+        if chart != nil { height += 13 }
         setFrameSize(NSSize(width: width, height: height + 8))
         autoresizingMask = [.width]
     }
@@ -170,15 +171,24 @@ final class PowerSummaryView: NSView {
         if let chart {
             y -= chart.size.height + 6
             chart.draw(in: NSRect(x: Self.leading, y: y, width: chart.size.width, height: chart.size.height))
-            // 横轴：曲线下方标出起止时间
-            if let timeRange {
-                y -= 13
-                let font = NSFont.systemFont(ofSize: 9)
-                draw(timeRange.start, at: NSPoint(x: Self.leading, y: y), font: font, color: .tertiaryLabelColor)
-                let endWidth = NSAttributedString(string: timeRange.end, attributes: [.font: font]).size().width
-                draw(timeRange.end, at: NSPoint(x: Self.leading + chart.size.width - endWidth, y: y),
-                     font: font, color: .tertiaryLabelColor)
+            // 横轴：整点时间刻度，最右边是「现在」。标签居中对准刻度，挨太近的跳过
+            y -= 13
+            let font = NSFont.systemFont(ofSize: 9)
+            func width(_ text: String) -> CGFloat {
+                NSAttributedString(string: text, attributes: [.font: font]).size().width
             }
+            let nowWidth = width("现在")
+            let nowX = Self.leading + chart.size.width - nowWidth
+            var lastRight = -CGFloat.infinity
+            for tick in timeTicks {
+                let w = width(tick.label)
+                let x = min(max(Self.leading + chart.size.width * tick.position - w / 2, Self.leading),
+                            Self.leading + chart.size.width - w)
+                guard x > lastRight + 6, x + w < nowX - 6 else { continue }
+                draw(tick.label, at: NSPoint(x: x, y: y), font: font, color: .tertiaryLabelColor)
+                lastRight = x + w
+            }
+            draw("现在", at: NSPoint(x: nowX, y: y), font: font, color: .tertiaryLabelColor)
         }
     }
 
@@ -188,7 +198,9 @@ final class PowerSummaryView: NSView {
 
     /// 调试：把概览块画成 PNG，检查对齐和字号
     static func renderPreview(toDirectory dir: String) {
-        let history = PowerHistory.preview(hours: 6)
+        // 预览跨度可以用 -previewHours 1 / 6 / 24 调，检查不同跨度下横轴刻度挤不挤
+        let hours = UserDefaults.standard.double(forKey: "previewHours")
+        let history = PowerHistory.preview(hours: hours > 0 ? hours : 6)
         for (name, appearance) in [("power-summary", NSAppearance(named: .aqua)),
                                    ("power-summary-dark", NSAppearance(named: .darkAqua))] {
             NSAppearance.current = appearance
@@ -196,7 +208,7 @@ final class PowerSummaryView: NSView {
                 current: "当前 12.5 W",
                 stats: PowerMeter.statsText(history).map { "近 \(PowerHistory.spanText(history.span))　\($0)" },
                 chart: PowerChart.image(for: history),
-                timeRange: history.samples.first.map { (PowerAxis.timeLabel($0.time), "现在") })
+                timeTicks: PowerAxis.relativeTicks(for: history, maxTicks: 6))
             view.appearance = appearance
             // 菜单里是半透明底，这里垫一层菜单底色，不然浅色文字在透明底上看不见
             let canvas = BackdropView(frame: view.bounds)
