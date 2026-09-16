@@ -404,7 +404,11 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func setLowBatteryThreshold(_ sender: NSMenuItem) {
-        lowBatteryThreshold = sender.tag > 0 ? sender.tag : nil
+        applyLowBatteryThreshold(sender.tag > 0 ? sender.tag : nil)
+    }
+
+    private func applyLowBatteryThreshold(_ value: Int?) {
+        lowBatteryThreshold = value
         // 改完阈值立刻按新值判定：比如电量 25% 时把阈值调到 30%，就该马上停
         lowBatteryGuard = LowBatteryGuard()
         if lowBatteryThreshold != nil { Notifier.shared.requestAuthorizationIfNeeded() }
@@ -574,6 +578,13 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = nil  // 用完摘掉，否则左键也会弹菜单
     }
 
+    /// 自绘的开关行没有 action，菜单的自动启用会把它们当成禁用项，点不动。
+    /// 每行的可用状态我们自己设，所以整棵菜单都关掉自动启用
+    private static func stopAutoEnabling(_ menu: NSMenu) {
+        menu.autoenablesItems = false
+        menu.items.compactMap(\.submenu).forEach(stopAutoEnabling)
+    }
+
     func buildMenu() -> NSMenu {
         let menu = NSMenu()
         menu.delegate = self
@@ -620,13 +631,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // ── 喵住设置 ──
         menu.addItem(sectionHeader("喵住设置"))
 
-        let displayItem = makeItem("保持屏幕常亮", #selector(toggleDisplaySetting), symbol: "sun.max")
-        displayItem.state = keepDisplayOn ? .on : .off
+        let displayItem = makeToggleItem("保持屏幕常亮", symbol: "sun.max",
+                                         isOn: { [weak self] in self?.keepDisplayOn ?? false },
+                                         action: { [weak self] in self?.toggleDisplaySetting() })
         displayItem.toolTip = "关闭时只阻止系统休眠，屏幕仍可自动关闭"
         menu.addItem(displayItem)
 
-        let lidItem = makeItem("合盖也不休眠", #selector(toggleLidSetting), symbol: "laptopcomputer")
-        lidItem.state = lidBlockEnabled ? .on : .off
+        let lidItem = makeToggleItem("合盖也不休眠", symbol: "laptopcomputer",
+                                     isOn: { [weak self] in self?.lidBlockEnabled ?? false },
+                                     action: { [weak self] in self?.toggleLidSetting() })
         lidItem.toolTip = "首次开启需一次管理员授权，之后切换全程静默"
         menu.addItem(lidItem)
 
@@ -637,10 +650,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lowItem.toolTip = "只在用电池时生效；插上电源后会自动恢复喵住"
             let thresholds = NSMenu()
             for (label, value) in [("关闭", 0), ("低于 10%", 10), ("低于 20%", 20), ("低于 30%", 30)] {
-                let item = makeItem(label, #selector(setLowBatteryThreshold(_:)))
-                item.tag = value
-                item.state = (lowBatteryThreshold ?? 0) == value ? .on : .off
-                thresholds.addItem(item)
+                thresholds.addItem(makeToggleItem(label, symbol: nil,
+                                                  isOn: { [weak self] in (self?.lowBatteryThreshold ?? 0) == value },
+                                                  action: { [weak self] in
+                    self?.applyLowBatteryThreshold(value == 0 ? nil : value)
+                    lowItem.title = (value == 0) ? "低电量自动暂停（已关闭）" : "低电量自动暂停（\(value)%）"
+                }))
             }
             if lowBatteryThreshold != nil, Notifier.shared.isDenied {
                 thresholds.addItem(.separator())
@@ -659,8 +674,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // ── 效果与提示 ──
         menu.addItem(sectionHeader("效果与提示"))
 
-        let duoItem = makeItem("刘海灵动岛", #selector(toggleDuoSetting), symbol: "capsule")
-        duoItem.state = duoEnabled ? .on : .off
+        let duoItem = makeToggleItem("刘海灵动岛", symbol: "capsule",
+                                     isOn: { [weak self] in self?.duoEnabled ?? false },
+                                     action: { [weak self] in self?.toggleDuoSetting() })
         duoItem.toolTip = "鼠标悬停刘海展开状态胶囊，点按可切换"
         menu.addItem(duoItem)
 
@@ -686,8 +702,9 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(blurItem)
 
-        let soundItem = makeItem("切换时播放喵声", #selector(toggleSoundSetting), symbol: "speaker.wave.2")
-        soundItem.state = soundEnabled ? .on : .off
+        let soundItem = makeToggleItem("切换时播放喵声", symbol: "speaker.wave.2",
+                                       isOn: { [weak self] in self?.soundEnabled ?? false },
+                                       action: { [weak self] in self?.toggleSoundSetting() })
         menu.addItem(soundItem)
 
         // ── 工具 ──
@@ -713,6 +730,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(makeItem("项目主页…", #selector(openHomepage), symbol: "link"))
         menu.addItem(makeItem("退出 SleepCat", #selector(quit), symbol: "power", key: "q"))
 
+        Self.stopAutoEnabling(menu)
         return menu
     }
 
@@ -823,24 +841,38 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sub.addItem(footnoteItem)
         }
         sub.addItem(.separator())
-        let logging = makeItem("记录每次喵住的功耗", #selector(togglePowerLogging), symbol: "square.and.pencil")
-        logging.state = powerLoggingEnabled ? .on : .off
+        let logging = makeToggleItem("记录每次喵住的功耗", symbol: "square.and.pencil",
+                                     isOn: { [weak self] in self?.powerLoggingEnabled ?? true },
+                                     action: { [weak self] in self?.powerLoggingEnabled.toggle() })
         logging.toolTip = "喵住结束时往 CSV 记一行：时长、用电量、平均和峰值功耗"
         sub.addItem(logging)
         let spanRoot = makeItem("曲线跨度（\(PowerSpan.label(for: PowerSpan.current))）", #selector(noop), symbol: "clock.arrow.circlepath")
         spanRoot.action = nil
         let spanMenu = NSMenu()
         for (label, seconds) in PowerSpan.options {
-            let option = makeItem(label, #selector(setPowerSpan(_:)))
-            option.tag = Int(seconds)
-            option.state = PowerSpan.current == seconds ? .on : .off
-            spanMenu.addItem(option)
+            spanMenu.addItem(makeToggleItem(label, symbol: nil,
+                                            isOn: { PowerSpan.current == seconds },
+                                            action: {
+                PowerSpan.current = seconds
+                spanRoot.title = "曲线跨度（\(label)）"
+            }))
         }
         sub.addItem(spanRoot)
         sub.setSubmenu(spanMenu, for: spanRoot)
         sub.addItem(makeItem("功耗曲线…", #selector(openPowerWindow), symbol: "chart.xyaxis.line"))
         sub.addItem(makeItem("在访达中显示记录…", #selector(openPowerLog), symbol: "folder"))
         item.submenu = sub
+        return item
+    }
+
+    /// 开关 / 单选行：自绘视图，点完菜单不关，可以连着点好几个
+    private func makeToggleItem(_ title: @escaping @autoclosure () -> String, symbol name: String?,
+                                isOn: @escaping () -> Bool, action: @escaping () -> Void) -> NSMenuItem {
+        let item = NSMenuItem(title: title(), action: nil, keyEquivalent: "")
+        item.image = name.flatMap { symbol($0) }     // 只为菜单结构检查留着，显示走下面的视图
+        item.isEnabled = true
+        item.state = isOn() ? .on : .off             // 同上：显示由视图负责
+        item.view = MenuRow(symbol: item.image, title: title(), isOn: isOn, action: action)
         return item
     }
 

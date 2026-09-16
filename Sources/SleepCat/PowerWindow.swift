@@ -154,6 +154,14 @@ final class PowerChartView: NSView {
     }
 
     private func drawGrid(in plot: NSRect, bottom: Double, top: Double, step: Double) {
+        // 纵轴：贴着卡片左内缘的一条实线，刻度就挂在它左边
+        let axis = NSBezierPath()
+        axis.move(to: NSPoint(x: plot.minX.rounded() + 0.5, y: plot.minY))
+        axis.line(to: NSPoint(x: plot.minX.rounded() + 0.5, y: plot.maxY))
+        NSColor.separatorColor.setStroke()
+        axis.lineWidth = 1
+        axis.stroke()
+
         NSColor.separatorColor.withAlphaComponent(0.6).setStroke()
         var value = bottom
         while value <= top + 0.001 {

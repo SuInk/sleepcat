@@ -153,6 +153,16 @@ enum PowerChart {
                 path.lineJoinStyle = .round
                 path.stroke()
             }
+
+            // 菜单里放不下刻度线，就把上下限标在左边，至少知道纵轴的量级
+            func label(_ watts: Double, at y: CGFloat) {
+                NSAttributedString(string: PowerMeter.wattsText(watts), attributes: [
+                    .font: NSFont.systemFont(ofSize: 8),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                ]).draw(at: NSPoint(x: full.minX + 4, y: y))
+            }
+            label(highest, at: full.maxY - 11)
+            label(lowest, at: full.minY + 2)
             return true
         }
     }
