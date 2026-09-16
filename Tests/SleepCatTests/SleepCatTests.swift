@@ -141,6 +141,22 @@ import AppKit
         for (a, b) in zip(atHalf, atHalf.dropFirst()) { #expect(b >= a) }
     }
 
+    @Test func bandsCarryTheBlurAcrossTheScreen() {
+        // 真正糊画面的是毛玻璃层：全开时一层都不出力，合到底时远边拉满、铰链边几乎不出力
+        for band in DuoBlur.blurBands.indices {
+            #expect(DuoBlur.bandOpacity(progress: 0, band: band) == 0)
+        }
+        let top = DuoBlur.bandOpacity(progress: 1, band: DuoBlur.blurBands.count - 1)
+        let hinge = DuoBlur.bandOpacity(progress: 1, band: 0)
+        #expect(top > 0.95, "远边要糊透")
+        #expect(hinge < 0.25, "铰链边要基本清晰")
+        // 每层都随合盖单调变浓
+        for band in DuoBlur.blurBands.indices {
+            let ramp = stride(from: 0.0, through: 1.0, by: 0.1).map { DuoBlur.bandOpacity(progress: $0, band: band) }
+            for (a, b) in zip(ramp, ramp.dropFirst()) { #expect(b >= a) }
+        }
+    }
+
     @Test func dimAndPollFollowProgress() {
         #expect(DuoBlur.dimOpacity(progress: 0) == 0)
         #expect(DuoBlur.dimOpacity(progress: 1) > 0.8)

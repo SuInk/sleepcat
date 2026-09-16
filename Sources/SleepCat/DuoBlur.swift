@@ -49,6 +49,17 @@ final class DuoBlur {
     /// 远边最大模糊半径（点）。铰链边几乎为 0，一路涨到这个值
     static let maxBlurRadius: Double = 90
 
+    /// 这一刻某一层该出多少力（0…1）。
+    /// 真正把画面糊掉的是系统的毛玻璃层——背景滤镜跨窗口模糊在现在的 macOS 上基本不生效，
+    /// 所以按高度给每层配不同的不透明度：铰链边那层几乎不出力，远边那层拉满，
+    /// 叠起来就是「越往远边越糊」
+    static func bandOpacity(progress: Double, band: Int) -> Double {
+        guard progress > 0, blurBands.indices.contains(band) else { return 0 }
+        let center = (blurBands[band].start + blurBands[band].end) / 2
+        return min(1, FoldGeometry.blurStrength(progress: progress)
+            * FoldGeometry.blurProfile(atHeight: center) * 1.15)
+    }
+
     /// 这一刻某一层该用多大的模糊半径。
     /// 高度按 g^1.35 涨（Duo 的曲线），整体强度按 progress^1.45 涨：起步慢、后半程才真糊
     static func blurRadius(progress: Double, band: Int) -> Double {
@@ -197,8 +208,7 @@ final class DuoBlur {
                                           parameters: [kCIInputRadiusKey: radius]) {
                 band.layer.backgroundFilters = [blur]
             }
-            // 背景滤镜万一在某台机器上不生效，至少还有系统毛玻璃撑着
-            band.fallback.alphaValue = radius / Self.maxBlurRadius * 0.6 / Double(Self.blurBands.count)
+            band.fallback.alphaValue = Self.bandOpacity(progress: progress, band: i)
         }
         // 渐隐到黑：远边先暗，接近合死时整屏没入黑暗
         voidLayer?.opacity = Float(Self.dimOpacity(progress: progress))
@@ -303,6 +313,20 @@ final class DuoBlur {
             root.addSubview(layerView)
             bands.append((layer, fallback))
         }
+
+        // 渐隐到黑：铰链边不压暗，远边最黑，整体浓度跟着角度走
+        let void = CAGradientLayer()
+        void.frame = root.bounds
+        void.colors = [
+            NSColor.clear.cgColor,
+            NSColor.black.withAlphaComponent(CGFloat(FoldGeometry.maxDim)).cgColor,
+        ]
+        void.locations = [NSNumber(value: FoldGeometry.dimStart), 1.0]
+        void.startPoint = CGPoint(x: 0.5, y: 0)   // 底部＝铰链侧
+        void.endPoint = CGPoint(x: 0.5, y: 1)
+        void.opacity = 0
+        root.layer?.addSublayer(void)
+        voidLayer = void
 
         w.contentView = root
         return w
