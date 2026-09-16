@@ -12,7 +12,7 @@ import AppKit
 final class LidBlocker {
     private(set) var isActive = false
 
-    private static let logPath = ("~/Library/Logs/SleepCat.log" as NSString).expandingTildeInPath
+    static let logPath = ("~/Library/Logs/SleepCat.log" as NSString).expandingTildeInPath
     private static let sudoersPath = "/etc/sudoers.d/sleepcat"
 
     /// macOS 27 起 pmset 在 /usr/bin，老系统在 /usr/sbin
