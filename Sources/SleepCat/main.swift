@@ -717,7 +717,15 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let updateTitle = availableUpdate.map { "更新到 \($0.version)…" } ?? "检查更新…"
         menu.addItem(makeItem(updateTitle, #selector(checkForUpdates), symbol: "arrow.triangle.2.circlepath"))
         menu.addItem(makeItem("项目主页…", #selector(openHomepage), symbol: "link"))
-        menu.addItem(makeItem("退出 SleepCat", #selector(quit), symbol: "power", key: "q"))
+        // ⌘Q 不挂在显示出来的这一行上：只要有一行带快捷键，系统就在整列右侧留出快捷键那一栏，
+        // 喵住时长、功耗这些行的值就离箭头很远。改成灰字写在行尾，快捷键交给一个隐藏的行
+        let quitItem = makeItem("退出 SleepCat", #selector(quit), symbol: "power")
+        quitItem.attributedTitle = Self.trailingTitle("退出 SleepCat", value: "⌘Q")
+        menu.addItem(quitItem)
+        let quitKey = makeItem("退出 SleepCat", #selector(quit), key: "q")
+        quitKey.isHidden = true
+        quitKey.allowsKeyEquivalentWhenHidden = true
+        menu.addItem(quitKey)
 
         Self.stopAutoEnabling(menu)
         return menu
