@@ -150,12 +150,14 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         island.statusProvider = { [weak self] in
             guard let self else { return .init(active: false, title: "SleepCat", detail: "") }
+            // 展开期间每秒刷新一次，这里现读 SMC（一次不到 1 毫秒），是真正的实时值
+            let watts = PowerMeter.read()
             if self.blocker.isActive {
                 var detail = self.deadline.map { "还剩 \(Self.format($0.timeIntervalSinceNow))" } ?? "无限期"
                 if self.lidBlocker.isActive { detail += " · 含合盖" }
-                return .init(active: true, title: "喵住中", detail: detail + " · 点按停止")
+                return .init(active: true, title: "喵住中", detail: detail + " · 点按停止", watts: watts)
             }
-            return .init(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住")
+            return .init(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: watts)
         }
         island.onToggle = { [weak self] in self?.toggle() }
         if duoEnabled {

@@ -12,6 +12,8 @@ final class NotchIsland: NSObject {
         let active: Bool
         let title: String
         let detail: String
+        /// 实时整机功耗，读不到就不显示
+        var watts: Double? = nil
     }
 
     var statusProvider: (() -> Status)?
@@ -49,7 +51,7 @@ final class NotchIsland: NSObject {
     /// 展开态：刘海下方的胶囊
     private var expandedFrame: NSRect {
         guard let s = screen else { return .zero }
-        let size = NSSize(width: 340, height: 84)
+        let size = NSSize(width: 404, height: 84)   // 右边留出功耗读数的位置
         return NSRect(x: s.frame.midX - size.width / 2, y: s.frame.maxY - size.height,
                       width: size.width, height: size.height)
     }
@@ -162,10 +164,10 @@ final class NotchIsland: NSObject {
 extension NotchIsland {
     /// 调试用：把展开态的岛离屏渲染成 PNG（2x）
     static func renderPreview(toDirectory dir: String) {
-        let size = NSSize(width: 340, height: 84)
+        let size = NSSize(width: 404, height: 84)
         let samples: [(String, Status)] = [
-            ("island-active", Status(active: true, title: "喵住中", detail: "还剩 1 小时 59 分 · 点按停止")),
-            ("island-idle", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住")),
+            ("island-active", Status(active: true, title: "喵住中", detail: "还剩 1 小时 59 分 · 点按停止", watts: 12.5)),
+            ("island-idle", Status(active: false, title: "打盹中", detail: "Mac 可正常休眠 · 点按喵住", watts: 4.3)),
         ]
         for (name, status) in samples {
             let v = IslandView(frame: NSRect(origin: .zero, size: size))
@@ -194,6 +196,8 @@ private final class IslandView: NSView {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
+    private let powerIcon = NSImageView()
+    private let powerLabel = NSTextField(labelWithString: "")
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -217,7 +221,19 @@ private final class IslandView: NSView {
 
         detailLabel.font = .systemFont(ofSize: 11)
         detailLabel.textColor = NSColor.white.withAlphaComponent(0.65)
+        detailLabel.lineBreakMode = .byTruncatingTail
         capsule.addSubview(detailLabel)
+
+        // 右侧的实时功耗：等宽数字，跳动时宽度不变，不会左右抖
+        powerIcon.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "功耗")
+        powerIcon.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
+        powerIcon.contentTintColor = NSColor.white.withAlphaComponent(0.65)
+        capsule.addSubview(powerIcon)
+
+        powerLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .semibold)
+        powerLabel.textColor = .white
+        powerLabel.alignment = .right
+        capsule.addSubview(powerLabel)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -226,6 +242,9 @@ private final class IslandView: NSView {
         iconView.image = status.active ? CatIcon.awake : CatIcon.asleep
         titleLabel.stringValue = status.title
         detailLabel.stringValue = status.detail
+        powerLabel.stringValue = status.watts.map { PowerMeter.wattsText($0) } ?? ""
+        powerIcon.isHidden = status.watts == nil
+        needsLayout = true
     }
 
     override func layout() {
@@ -234,9 +253,19 @@ private final class IslandView: NSView {
         let iconSize = NSSize(width: 36, height: 30)
         iconView.frame = NSRect(x: 24, y: bounds.midY - iconSize.height / 2 - 2,
                                 width: iconSize.width, height: iconSize.height)
+        // 右侧功耗：读数右对齐，闪电贴在读数左边
+        let powerWidth: CGFloat = powerLabel.stringValue.isEmpty ? 0 : 76
+        powerLabel.frame = NSRect(x: bounds.width - 22 - powerWidth, y: bounds.midY - 13,
+                                  width: powerWidth, height: 22)
+        let boltSize: CGFloat = 12
+        let textWidth = powerLabel.attributedStringValue.size().width
+        powerIcon.frame = NSRect(x: powerLabel.frame.maxX - textWidth - boltSize - 4, y: bounds.midY - 8,
+                                 width: boltSize, height: boltSize + 2)
+
         let textX = iconView.frame.maxX + 14
-        titleLabel.frame = NSRect(x: textX, y: bounds.midY, width: bounds.width - textX - 16, height: 18)
-        detailLabel.frame = NSRect(x: textX, y: bounds.midY - 17, width: bounds.width - textX - 16, height: 15)
+        let textRight = powerWidth > 0 ? powerIcon.frame.minX - 10 : bounds.width - 16
+        titleLabel.frame = NSRect(x: textX, y: bounds.midY, width: textRight - textX, height: 18)
+        detailLabel.frame = NSRect(x: textX, y: bounds.midY - 17, width: textRight - textX, height: 15)
     }
 
     override func mouseDown(with event: NSEvent) {
