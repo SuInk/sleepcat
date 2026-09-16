@@ -73,10 +73,24 @@ final class PowerChartView: NSView {
         return control
     }()
 
+    /// 记录文件的入口放在窗口里，不占菜单
+    private lazy var logButton: NSButton = {
+        let button = NSButton(title: "打开记录文件…", target: nil, action: nil)
+        button.bezelStyle = .inline
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 11)
+        button.target = self
+        button.action = #selector(openLog)
+        return button
+    }()
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(spanControl)
+        addSubview(logButton)
     }
+
+    @objc private func openLog() { PowerLog.revealInFinder() }
 
     required init?(coder: NSCoder) { nil }
 
@@ -85,6 +99,9 @@ final class PowerChartView: NSView {
         let size = spanControl.intrinsicContentSize
         spanControl.frame = NSRect(x: bounds.maxX - size.width - 20, y: bounds.maxY - size.height - 22,
                                    width: size.width, height: size.height)
+        let buttonSize = logButton.intrinsicContentSize
+        logButton.frame = NSRect(x: bounds.maxX - buttonSize.width - 20, y: 8,
+                                 width: buttonSize.width, height: buttonSize.height)
     }
 
     @objc private func spanChanged() {

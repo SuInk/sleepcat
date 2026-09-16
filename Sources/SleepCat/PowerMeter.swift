@@ -2,7 +2,7 @@
 // Copyright (C) 2026 SuInk
 // 自由软件：按 GNU AGPL v3（或更新版本）发布，不附任何担保。详见 LICENSE。
 
-import Foundation
+import AppKit
 import IOKit
 
 /// 整机功耗读数。
@@ -96,6 +96,18 @@ enum PowerLog {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SleepCat", isDirectory: true)
         return dir.appendingPathComponent("功耗记录.csv")
+    }
+
+    /// 在访达里选中记录文件；还没有记录时打开所在的文件夹
+    static func revealInFinder() {
+        let url = fileURL
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            let folder = url.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(folder)
+        }
     }
 
     static func append(_ session: PowerSession, to url: URL = fileURL) {

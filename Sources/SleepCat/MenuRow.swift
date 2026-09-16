@@ -118,102 +118,119 @@ private final class BackdropView: NSView {
     }
 }
 
-/// 功耗子菜单顶部的概览块：当前读数、统计、曲线合在一行里自绘，
-/// 左边界和下面那些带图标的操作行对齐，不再是三段各自为政的文字
+/// 功耗子菜单的概览块：当前读数、跨度切换、统计、曲线、时间刻度合成一块自绘。
+/// 数据每次绘制时现取，所以在菜单里切换跨度，曲线当场重画，不用关掉菜单再开
 final class PowerSummaryView: NSView {
-    private let current: String
-    private let stats: String?
-    private let chart: NSImage?
-    /// 横轴刻度：位置（0…1，占曲线宽度的比例）和标签
-    private let timeTicks: [(position: CGFloat, label: String)]
+    private let historyProvider: () -> PowerHistory
+    private let wattsProvider: () -> Double?
 
     /// 和 MenuRow 的图标列对齐
     private static let leading: CGFloat = 30
     private static let trailing: CGFloat = 20
+    private static let headerHeight: CGFloat = 26
+    private static let statsHeight: CGFloat = 16
+    private static let ticksHeight: CGFloat = 13
 
-    init(current: String, stats: String?, chart: NSImage?,
-         timeTicks: [(position: CGFloat, label: String)] = []) {
-        self.current = current
-        self.stats = stats
-        self.chart = chart
-        self.timeTicks = timeTicks
+    private lazy var spanControl: NSSegmentedControl = {
+        let control = NSSegmentedControl(labels: PowerSpan.options.map(\.label),
+                                         trackingMode: .selectOne, target: self, action: #selector(spanChanged))
+        control.segmentStyle = .rounded
+        control.controlSize = .mini
+        control.font = .systemFont(ofSize: 10)
+        control.selectedSegment = PowerSpan.options.firstIndex { $0.seconds == PowerSpan.current } ?? 0
+        return control
+    }()
+
+    init(history: @escaping () -> PowerHistory, watts: @escaping () -> Double?) {
+        historyProvider = history
+        wattsProvider = watts
         super.init(frame: .zero)
-        let chartHeight = chart?.size.height ?? 0
-        // 宽度按最宽的那行算，不然统计那行会被截掉
-        func textWidth(_ text: String?, size: CGFloat, weight: NSFont.Weight = .regular) -> CGFloat {
-            guard let text else { return 0 }
-            return ceil(NSAttributedString(string: text, attributes: [
-                .font: NSFont.systemFont(ofSize: size, weight: weight),
-            ]).size().width)
-        }
-        let widest = max(textWidth(current, size: 15, weight: .semibold),
-                         textWidth(stats, size: 11),
-                         chart?.size.width ?? 0)
-        let width = max(widest + Self.leading + Self.trailing, 260)
-        var height: CGFloat = 26                                  // 当前读数
-        if stats != nil { height += 16 }
-        if chart != nil { height += chartHeight + 8 }
-        if chart != nil { height += 13 }
-        setFrameSize(NSSize(width: width, height: height + 8))
+        // 宽度按最长的统计行估：峰值三位数时也放得下
+        let sample = "近 24 小时　平均 188.8 W · 峰值 188.8 W · 最低 188.8 W"
+        let statsWidth = ceil(NSAttributedString(string: sample, attributes: [.font: NSFont.systemFont(ofSize: 11)])
+            .size().width)
+        let width = max(statsWidth, PowerChart.size.width) + Self.leading + Self.trailing
+        let height = Self.headerHeight + Self.statsHeight + PowerChart.size.height + 8 + Self.ticksHeight + 8
+        setFrameSize(NSSize(width: width, height: height))
         autoresizingMask = [.width]
+        addSubview(spanControl)
     }
 
     required init?(coder: NSCoder) { nil }
 
+    private var contentWidth: CGFloat { bounds.width - Self.leading - Self.trailing }
+
+    override func layout() {
+        super.layout()
+        // 跨度切换和「当前」读数同一行，右边缘对齐曲线的右边缘
+        let size = spanControl.intrinsicContentSize
+        spanControl.frame = NSRect(x: Self.leading + PowerChart.size.width - size.width,
+                                   y: bounds.maxY - 21, width: size.width, height: size.height)
+    }
+
+    @objc private func spanChanged() {
+        PowerSpan.current = PowerSpan.options[spanControl.selectedSegment].seconds
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        let visible = historyProvider().limited(to: PowerSpan.current)
         var y = bounds.maxY - 22
-        draw(current, at: NSPoint(x: Self.leading, y: y),
-             font: .systemFont(ofSize: 15, weight: .semibold), color: .labelColor)
-        if let stats {
-            y -= 16
-            draw(stats, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        let current = wattsProvider().map { "当前 \(PowerMeter.wattsText($0))" } ?? "当前读不到"
+        draw(current, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 15, weight: .semibold),
+             color: .labelColor)
+
+        y -= Self.statsHeight
+        let stats = PowerMeter.statsText(visible).map { "近 \(PowerHistory.spanText(visible.span))　\($0)" }
+            ?? "还在采样，攒够一分钟就有曲线了"
+        draw(stats, at: NSPoint(x: Self.leading, y: y), font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+
+        y -= PowerChart.size.height + 6
+        let box = NSRect(x: Self.leading, y: y, width: PowerChart.size.width, height: PowerChart.size.height)
+        if let chart = PowerChart.image(for: visible) {
+            chart.draw(in: box)
+        } else {
+            let frame = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+            NSColor.separatorColor.setStroke()
+            frame.stroke()
         }
-        if let chart {
-            y -= chart.size.height + 6
-            chart.draw(in: NSRect(x: Self.leading, y: y, width: chart.size.width, height: chart.size.height))
-            // 横轴：整点时间刻度，最右边是「现在」。标签居中对准刻度，挨太近的跳过
-            y -= 13
-            let font = NSFont.systemFont(ofSize: 9)
-            func width(_ text: String) -> CGFloat {
-                NSAttributedString(string: text, attributes: [.font: font]).size().width
-            }
-            let nowWidth = width("现在")
-            let nowX = Self.leading + chart.size.width - nowWidth
-            var lastRight = -CGFloat.infinity
-            for tick in timeTicks {
-                let w = width(tick.label)
-                let x = min(max(Self.leading + chart.size.width * tick.position - w / 2, Self.leading),
-                            Self.leading + chart.size.width - w)
-                guard x > lastRight + 6, x + w < nowX - 6 else { continue }
-                draw(tick.label, at: NSPoint(x: x, y: y), font: font, color: .tertiaryLabelColor)
-                lastRight = x + w
-            }
-            draw("现在", at: NSPoint(x: nowX, y: y), font: font, color: .tertiaryLabelColor)
+
+        // 横轴：整点时间刻度，最右边是「现在」。标签居中对准刻度，挨太近的跳过
+        y -= Self.ticksHeight
+        let font = NSFont.systemFont(ofSize: 9)
+        func width(_ text: String) -> CGFloat {
+            NSAttributedString(string: text, attributes: [.font: font]).size().width
         }
+        let nowX = box.maxX - width("现在")
+        var lastRight = -CGFloat.infinity
+        for tick in PowerAxis.relativeTicks(for: visible, maxTicks: 6) {
+            let w = width(tick.label)
+            let x = min(max(box.minX + box.width * tick.position - w / 2, box.minX), box.maxX - w)
+            guard x > lastRight + 6, x + w < nowX - 6 else { continue }
+            draw(tick.label, at: NSPoint(x: x, y: y), font: font, color: .tertiaryLabelColor)
+            lastRight = x + w
+        }
+        draw("现在", at: NSPoint(x: nowX, y: y), font: font, color: .tertiaryLabelColor)
     }
 
     private func draw(_ text: String, at point: NSPoint, font: NSFont, color: NSColor) {
         NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]).draw(at: point)
     }
 
-    /// 调试：把概览块画成 PNG，检查对齐和字号
+    /// 调试：把概览块画成 PNG，检查对齐和字号。-previewHours 1 / 6 / 24 调跨度
     static func renderPreview(toDirectory dir: String) {
-        // 预览跨度可以用 -previewHours 1 / 6 / 24 调，检查不同跨度下横轴刻度挤不挤
         let hours = UserDefaults.standard.double(forKey: "previewHours")
         let history = PowerHistory.preview(hours: hours > 0 ? hours : 6)
         for (name, appearance) in [("power-summary", NSAppearance(named: .aqua)),
                                    ("power-summary-dark", NSAppearance(named: .darkAqua))] {
             NSAppearance.current = appearance
-            let view = PowerSummaryView(
-                current: "当前 12.5 W",
-                stats: PowerMeter.statsText(history).map { "近 \(PowerHistory.spanText(history.span))　\($0)" },
-                chart: PowerChart.image(for: history),
-                timeTicks: PowerAxis.relativeTicks(for: history, maxTicks: 6))
+            let view = PowerSummaryView(history: { history }, watts: { 12.5 })
             view.appearance = appearance
             // 菜单里是半透明底，这里垫一层菜单底色，不然浅色文字在透明底上看不见
             let canvas = BackdropView(frame: view.bounds)
             canvas.appearance = appearance
             canvas.addSubview(view)
+            canvas.layoutSubtreeIfNeeded()
             guard let rep = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) else { continue }
             canvas.cacheDisplay(in: canvas.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?
