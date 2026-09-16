@@ -94,7 +94,19 @@ struct PowerHistory {
 
 /// 把曲线画成菜单里能放的小图
 enum PowerChart {
-    static let size = NSSize(width: 236, height: 52)
+    /// 调试：把菜单里那条迷你曲线单独存成 PNG，检查边框和留白
+    static func renderPreview(toDirectory dir: String) {
+        for (name, appearance) in [("power-sparkline", NSAppearance(named: .aqua)),
+                                   ("power-sparkline-dark", NSAppearance(named: .darkAqua))] {
+            NSAppearance.current = appearance
+            guard let image = image(for: .preview()),
+                  let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { continue }
+            try? rep.representation(using: .png, properties: [:])?
+                .write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
+        }
+    }
+
+        static let size = NSSize(width: 236, height: 52)
 
     /// 画折线 + 填充。菜单条目的图会在展示时才绘制，所以深浅色会自动跟着系统走
     static func image(for history: PowerHistory, size: NSSize = size) -> NSImage? {
@@ -107,7 +119,16 @@ enum PowerChart {
         let span = max(1.0, highest - lowest)
         let bottom = lowest - span * 0.25, top = highest + span * 0.25
 
-        return NSImage(size: size, flipped: false) { rect in
+        return NSImage(size: size, flipped: false) { full in
+            // 和曲线窗口一样的圆角卡片，菜单里也有个边界
+            let frame = full.insetBy(dx: 0.5, dy: 0.5)
+            let card = NSBezierPath(roundedRect: frame, xRadius: 6, yRadius: 6)
+            NSColor.separatorColor.setStroke()
+            card.lineWidth = 1
+            card.stroke()
+            card.setClip()
+
+            let rect = full.insetBy(dx: 2, dy: 3)
             let step = rect.width / CGFloat(values.count - 1)
             func point(_ i: Int, _ value: Double) -> NSPoint {
                 NSPoint(x: rect.minX + CGFloat(i) * step,
@@ -121,8 +142,8 @@ enum PowerChart {
                     if n == 0 { path.move(to: p) } else { path.line(to: p) }
                 }
                 let fill = path.copy() as! NSBezierPath
-                fill.line(to: NSPoint(x: point(segment.last!, values[segment.last!]!).x, y: rect.minY))
-                fill.line(to: NSPoint(x: point(segment.first!, values[segment.first!]!).x, y: rect.minY))
+                fill.line(to: NSPoint(x: point(segment.last!, values[segment.last!]!).x, y: full.minY))
+                fill.line(to: NSPoint(x: point(segment.first!, values[segment.first!]!).x, y: full.minY))
                 fill.close()
                 NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
                 fill.fill()
@@ -147,6 +168,22 @@ enum PowerChart {
         }
         if current.count > 1 { result.append(current) }
         return result
+    }
+}
+
+extension PowerHistory {
+    /// 文档 / 调试用：造一段有起伏、中间带休眠空档的采样
+    static func preview(hours: Double = 1, gap: ClosedRange<Double>? = nil) -> PowerHistory {
+        var history = PowerHistory()
+        let minutes = Int(hours * 60)
+        let start = Date().addingTimeInterval(-hours * 3600)
+        for minute in 0..<minutes {
+            let t = Double(minute) / Double(minutes)
+            if let gap, gap.contains(t) { continue }
+            let watts = 9 + 5 * sin(t * 18) + (t > 0.72 && t < 0.78 ? 13 : 0) + Double.random(in: -0.8...0.8)
+            history.add(watts: watts, at: start.addingTimeInterval(Double(minute) * 60))
+        }
+        return history
     }
 }
 

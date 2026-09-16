@@ -12,12 +12,12 @@ final class PowerWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var chart: PowerChartView?
     private var timer: Timer?
-    private var source: (() -> (history: PowerHistory, footnote: String?, awake: Bool))?
+    private var source: (() -> (history: PowerHistory, footnote: String?))?
 
     /// - Parameters:
     ///   - history: 每次刷新时现取，窗口不自己存数据
     ///   - footnote: 底部那行（本次喵住 / 今天记录），文案和菜单里保持一致
-    func show(history: @escaping () -> (history: PowerHistory, footnote: String?, awake: Bool)) {
+    func show(history: @escaping () -> (history: PowerHistory, footnote: String?)) {
         source = history
         if let window {
             refresh()
@@ -50,7 +50,6 @@ final class PowerWindowController: NSObject, NSWindowDelegate {
         let snapshot = source()
         chart?.history = snapshot.history
         chart?.footnote = snapshot.footnote
-        chart?.catAwake = snapshot.awake
         chart?.needsDisplay = true
     }
 
@@ -66,8 +65,6 @@ final class PowerChartView: NSView {
         didSet { needsDisplay = true }
     }
     var footnote: String?
-    /// 猫猫此刻是醒着（喵住中）还是在打盹，图标跟着菜单栏走
-    var catAwake = false
     /// 切换跨度后回调，让菜单那边也跟着变
     var onSpanChange: (() -> Void)?
 
@@ -117,10 +114,11 @@ final class PowerChartView: NSView {
                           width: bounds.width - inset.left - inset.right,
                           height: bounds.height - inset.top - inset.bottom)
         // 圆角卡片：和清洁键盘面板、灵动岛一个路子
-        let card = NSBezierPath(roundedRect: plot.insetBy(dx: -10, dy: -10), xRadius: 12, yRadius: 12)
-        NSColor.textBackgroundColor.withAlphaComponent(0.5).setFill()
+        let frame = plot.insetBy(dx: -10, dy: -10).insetBy(dx: 0.5, dy: 0.5)   // 半像素对齐，边框才是实的一条
+        let card = NSBezierPath(roundedRect: frame, xRadius: 12, yRadius: 12)
+        NSColor.textBackgroundColor.withAlphaComponent(0.6).setFill()
         card.fill()
-        NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
+        NSColor.separatorColor.setStroke()
         card.lineWidth = 1
         card.stroke()
         drawHeader()
@@ -141,21 +139,7 @@ final class PowerChartView: NSView {
     }
 
     private func drawHeader() {
-        // 猫猫跟着菜单栏的状态走：喵住中是睁眼带 ！！，打盹中是闭眼带 Zz
-        let cat = catAwake ? CatIcon.awake : CatIcon.asleep
-        let scale: CGFloat = 1.7
-        let box = NSRect(x: inset.left, y: bounds.maxY - 46,
-                         width: cat.size.width * scale, height: cat.size.height * scale)
-        // 模板图要在透明底上染色：直接在窗口背景上 sourceAtop 会糊成一个黑方块
-        let tinted = NSImage(size: box.size, flipped: false) { rect in
-            cat.draw(in: rect)
-            NSColor.labelColor.set()
-            rect.fill(using: .sourceAtop)
-            return true
-        }
-        tinted.draw(in: box)
-
-        let textX = box.maxX + 12
+        let textX = inset.left
         let current = visible.latest.map { PowerMeter.wattsText($0) } ?? "读不到"
         // 字号和面板、灵动岛一致：标题 semibold，副文案 11pt 次要色
         draw(current, at: NSPoint(x: textX, y: bounds.maxY - 42),
@@ -165,8 +149,8 @@ final class PowerChartView: NSView {
     }
 
     private func drawPlaceholder(in plot: NSRect) {
-        draw("猫猫还在数电表，攒够一分钟就有曲线了",
-             at: NSPoint(x: plot.midX - 108, y: plot.midY), font: .systemFont(ofSize: 12), color: .tertiaryLabelColor)
+        draw("还在采样，攒够一分钟就有曲线了",
+             at: NSPoint(x: plot.midX - 96, y: plot.midY), font: .systemFont(ofSize: 12), color: .tertiaryLabelColor)
     }
 
     private func drawGrid(in plot: NSRect, bottom: Double, top: Double, step: Double) {
@@ -242,22 +226,13 @@ final class PowerChartView: NSView {
 
     /// 调试：拿一段合成数据把窗口画成 PNG，方便看排版
     static func renderPreview(toDirectory dir: String) {
-        var history = PowerHistory()
-        let start = Date().addingTimeInterval(-24 * 3600)
-        for minute in 0..<(24 * 60) {
-            let t = Double(minute) / Double(24 * 60)
-            // 夜里合盖睡了六小时：这一段没有采样，曲线应该断开
-            if t > 0.12, t < 0.37 { continue }
-            let watts = 9 + 5 * sin(t * 18) + (t > 0.72 && t < 0.78 ? 13 : 0) + Double.random(in: -0.8...0.8)
-            history.add(watts: watts, at: start.addingTimeInterval(Double(minute) * 60))
-        }
+        let history = PowerHistory.preview(hours: 24, gap: 0.12...0.37)
         for (name, appearance) in [("power-window", NSAppearance(named: .aqua)),
                                    ("power-window-dark", NSAppearance(named: .darkAqua))] {
             let view = PowerChartView(frame: NSRect(x: 0, y: 0, width: 520, height: 300))
             view.appearance = appearance
             view.history = history
             view.footnote = "本次喵住 1.6 Wh · 今天记录 12.4 Wh"
-            view.catAwake = true
             view.layoutSubtreeIfNeeded()
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)

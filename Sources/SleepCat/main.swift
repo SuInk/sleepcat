@@ -510,7 +510,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openPowerWindow() {
         PowerWindowController.shared.show { [weak self] in
-            (self?.powerHistory ?? PowerHistory(), self?.powerFootnote(), self?.blocker.isActive ?? false)
+            (self?.powerHistory ?? PowerHistory(), self?.powerFootnote())
         }
     }
 
@@ -752,6 +752,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.duoBlur = DuoBlur(sensor: LidAngleSensor())
         app.blocker.start(keepDisplayOn: false)
         app.latestWatts = PowerMeter.read()
+        app.powerHistory = .preview()       // 菜单里的曲线要有数据才画得出来
         app.deadline = Date().addingTimeInterval(2 * 3600 - 20)
         app.activePreset = 120
         NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -1523,6 +1524,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--dump-icons") {
     DurationPicker.renderPreview(toDirectory: dir)
     KeyboardLock.renderPreview(toDirectory: dir)
     PowerChartView.renderPreview(toDirectory: dir)
+    PowerChart.renderPreview(toDirectory: dir)
     exit(0)
 }
 
