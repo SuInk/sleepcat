@@ -191,7 +191,7 @@ final class PowerSummaryView: NSView {
                 current: "当前 12.5 W",
                 stats: PowerMeter.statsText(history).map { "近 \(PowerHistory.spanText(history.span))　\($0)" },
                 chart: PowerChart.image(for: history),
-                footnote: "本次喵住 1.6 Wh · 今天记录 12.4 Wh")
+                footnote: "今天用电 12.4 Wh")
             view.appearance = appearance
             // 菜单里是半透明底，这里垫一层菜单底色，不然浅色文字在透明底上看不见
             let canvas = BackdropView(frame: view.bounds)

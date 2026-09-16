@@ -220,15 +220,16 @@ final class PowerChartView: NSView {
             .draw(at: point)
     }
 
-    /// 纵轴范围：贴着数据但取整刻度，最少跨 4 瓦，免得平稳时曲线被放大成锯齿。
+    /// 纵轴范围：贴着数据、刻度是 5 的倍数，至少两格，免得平稳时曲线被放大成锯齿。
     /// 纯函数，便于测试
     static func axis(low: Double, high: Double) -> (bottom: Double, top: Double, step: Double) {
-        let span = max(4, high - low)
-        let step = max(1, (span / 3).rounded())
+        // 刻度一律是 5 的倍数（5、10、20、25、50…），挑一个让格数不超过 5 的
+        let span = max(5, high - low)
+        let step = [5.0, 10, 20, 25, 50, 100].first { span / $0 <= 5 } ?? 100
         let bottom = max(0, (low / step).rounded(.down) * step)
-        var top = ((high / step).rounded(.up)) * step
-        // 至少跨 4 瓦、至少两格：读数平稳时别把零点几瓦的噪声放大成大起大落
-        while top - bottom < max(4, step * 2) { top += step }
+        var top = (high / step).rounded(.up) * step
+        // 至少两格：读数平稳时别把零点几瓦的噪声放大成大起大落
+        while top - bottom < step * 2 { top += step }
         return (bottom, top, step)
     }
 
@@ -240,7 +241,7 @@ final class PowerChartView: NSView {
             let view = PowerChartView(frame: NSRect(x: 0, y: 0, width: 520, height: 300))
             view.appearance = appearance
             view.history = history
-            view.footnote = "本次喵住 1.6 Wh · 今天记录 12.4 Wh"
+            view.footnote = "今天用电 12.4 Wh"
             view.layoutSubtreeIfNeeded()
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)

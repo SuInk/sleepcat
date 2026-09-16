@@ -790,14 +790,26 @@ import AppKit
         #expect(PowerChart.image(for: history) == nil, "没数据时不该画出空图")
     }
 
-    @Test func axisUsesRoundNumbers() {
-        let (bottom, top, step) = PowerChartView.axis(low: 8.4, high: 19.7)
-        #expect(bottom <= 8.4 && top >= 19.7)
-        #expect(bottom >= 0, "功耗不会是负的，纵轴不该探到 0 以下")
-        #expect(step == step.rounded() && step >= 1, "刻度要是整数")
-        // 读数平稳时不该把噪声放大成大起大落
-        let flat = PowerChartView.axis(low: 9.9, high: 10.1)
-        #expect(flat.top - flat.bottom >= 4)
+    @Test func axisUsesMultiplesOfFive() {
+        for (low, high) in [(8.4, 19.7), (0.6, 42.1), (9.9, 10.1), (3.2, 5.7), (12, 88)] {
+            let (bottom, top, step) = PowerChartView.axis(low: low, high: high)
+            #expect(bottom <= low && top >= high, "要把 \(low)…\(high) 装进去")
+            #expect(bottom >= 0, "功耗不会是负的，纵轴不该探到 0 以下")
+            #expect(step.truncatingRemainder(dividingBy: 5) == 0, "刻度 \(step) 不是 5 的倍数")
+            #expect(bottom.truncatingRemainder(dividingBy: 5) == 0 && top.truncatingRemainder(dividingBy: 5) == 0)
+            #expect((top - bottom) / step <= 6, "格子太多挤成一团")
+        }
+        // 菜单那条小曲线的上下限同样取到 5 的倍数
+        #expect(PowerChart.axisBounds(low: 0.7, high: 15.3) == (0, 20))
+        #expect(PowerChart.axisBounds(low: 10.1, high: 10.4) == (10, 15))
+    }
+
+    @Test func curveKeepsShortSpikes() {
+        // 几秒的尖峰也得画出来：统计写着峰值多少，曲线上就要看得到
+        var history = PowerHistory()
+        for i in 0..<360 { history.add(watts: i == 200 ? 42 : 5, at: start.addingTimeInterval(Double(i) * 10)) }
+        let curve = history.curve(points: 60, now: start.addingTimeInterval(3600))
+        #expect(curve.compactMap { $0 }.max() == 42)
     }
 }
 

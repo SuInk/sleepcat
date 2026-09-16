@@ -64,8 +64,16 @@ struct PowerHistory {
         let start = max(first.time, now.addingTimeInterval(-Self.window))
         let duration = max(1, now.timeIntervalSince(start))
         var result = [Double?](repeating: nil, count: count)
+        // 格子里有采样就取最大值：功耗的尖峰往往只有几秒，取平均或插值会被抹平，
+        // 结果统计里写着峰值 42 W，曲线上却只看到 15 W
+        var peaks = [Double?](repeating: nil, count: count)
+        for sample in samples where sample.time >= start {
+            let slot = min(count - 1, max(0, Int(sample.time.timeIntervalSince(start) / duration * Double(count))))
+            peaks[slot] = max(peaks[slot] ?? sample.watts, sample.watts)
+        }
         var index = 0
         for i in 0..<count {
+            if let peak = peaks[i] { result[i] = peak; continue }
             let time = start.addingTimeInterval(duration * (Double(i) + 0.5) / Double(count))
             while index + 1 < samples.count, samples[index + 1].time <= time { index += 1 }
             let previous = samples[index]
@@ -113,11 +121,9 @@ enum PowerChart {
         let values = history.curve(points: Int(size.width / 2))
         let known = values.compactMap { $0 }
         guard values.count > 1, known.count > 1 else { return nil }
-        let lowest = known.min() ?? 0
-        let highest = known.max() ?? 1
-        // 上下各留一点余量，曲线不会贴边；全程恒定时画在中间
-        let span = max(1.0, highest - lowest)
-        let bottom = lowest - span * 0.25, top = highest + span * 0.25
+        // 纵轴上下限取到 5 的倍数，标签才是 0 W、20 W 这种好读的数
+        let (bottom, top) = axisBounds(low: known.min() ?? 0, high: known.max() ?? 1)
+        let lowest = bottom, highest = top
 
         return NSImage(size: size, flipped: false) { full in
             // 和曲线窗口一样的圆角卡片，菜单里也有个边界
@@ -156,7 +162,7 @@ enum PowerChart {
 
             // 菜单里放不下刻度线，就把上下限标在左边，至少知道纵轴的量级
             func label(_ watts: Double, at y: CGFloat) {
-                NSAttributedString(string: PowerMeter.wattsText(watts), attributes: [
+                NSAttributedString(string: String(format: "%.0f W", watts), attributes: [
                     .font: NSFont.systemFont(ofSize: 8),
                     .foregroundColor: NSColor.secondaryLabelColor,
                 ]).draw(at: NSPoint(x: full.minX + 4, y: y))
@@ -165,6 +171,14 @@ enum PowerChart {
             label(lowest, at: full.minY + 2)
             return true
         }
+    }
+
+    /// 纵轴上下限：往外取到 5 的倍数，至少跨 5 瓦。纯函数，便于测试
+    static func axisBounds(low: Double, high: Double) -> (bottom: Double, top: Double) {
+        let bottom = max(0, (low / 5).rounded(.down) * 5)
+        var top = (high / 5).rounded(.up) * 5
+        if top - bottom < 5 { top = bottom + 5 }
+        return (bottom, top)
     }
 
     /// 把带空洞的曲线切成一段段连续下标。纯函数，便于测试
