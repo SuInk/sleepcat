@@ -725,3 +725,66 @@ import AppKit
         #expect(spring.value == 128, "落定后不该再漂")
     }
 }
+
+@Suite struct PowerHistoryTests {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func filled(_ values: [Double], every seconds: TimeInterval = 10) -> PowerHistory {
+        var history = PowerHistory()
+        for (i, watts) in values.enumerated() {
+            history.add(watts: watts, at: start.addingTimeInterval(Double(i) * seconds))
+        }
+        return history
+    }
+
+    @Test func keepsOnlyTheLastHour() {
+        var history = PowerHistory()
+        history.add(watts: 5, at: start)
+        history.add(watts: 6, at: start.addingTimeInterval(1800))
+        history.add(watts: 7, at: start.addingTimeInterval(3700))   // 第一个点已经超过一小时
+        #expect(history.samples.count == 2)
+        #expect(history.samples.first?.watts == 6)
+        #expect(history.latest == 7)
+    }
+
+    @Test func averageIsTimeWeighted() {
+        // 10 W 持续 100 秒，接着 20 W 只持续 10 秒：平均该贴近 10，不是简单的 15
+        var history = PowerHistory()
+        history.add(watts: 10, at: start)
+        history.add(watts: 10, at: start.addingTimeInterval(100))
+        history.add(watts: 20, at: start.addingTimeInterval(110))
+        let average = try! #require(history.average)
+        #expect(average > 10 && average < 12)
+    }
+
+    @Test func curveStartsAtTheFirstSample() {
+        // 只采了十分钟，左边就不该补出五十分钟的假平线
+        let history = filled(Array(repeating: 8, count: 60) + Array(repeating: 20, count: 60))
+        let now = start.addingTimeInterval(1190)
+        let curve = history.curve(points: 100, now: now)
+        #expect(curve.count == 100)
+        #expect(abs(curve.first! - 8) < 0.001, "开头就是第一个采样值")
+        #expect(abs(curve.last! - 20) < 0.001, "结尾是最新的采样值")
+        // 跳变应该落在中间附近，而不是被挤到右边
+        let jump = curve.firstIndex { $0 > 14 } ?? 0
+        #expect(jump > 40 && jump < 60, "跳变位置 \(jump)")
+    }
+
+    @Test func emptyHistoryDrawsNothing() {
+        let history = PowerHistory()
+        #expect(history.isEmpty)
+        #expect(history.curve(points: 10).isEmpty)
+        #expect(history.average == nil)
+        #expect(PowerChart.image(for: history) == nil, "没数据时不该画出空图")
+    }
+
+    @Test func axisUsesRoundNumbers() {
+        let (bottom, top, step) = PowerChartView.axis(low: 8.4, high: 19.7)
+        #expect(bottom <= 8.4 && top >= 19.7)
+        #expect(bottom >= 0, "功耗不会是负的，纵轴不该探到 0 以下")
+        #expect(step == step.rounded() && step >= 1, "刻度要是整数")
+        // 读数平稳时不该把噪声放大成大起大落
+        let flat = PowerChartView.axis(low: 9.9, high: 10.1)
+        #expect(flat.top - flat.bottom >= 4)
+    }
+}
