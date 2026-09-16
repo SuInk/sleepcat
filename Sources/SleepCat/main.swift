@@ -620,7 +620,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         duoItem.toolTip = "鼠标悬停刘海展开状态胶囊，点按可切换"
         menu.addItem(duoItem)
 
-        let blurItem = makeItem("合盖渐变模糊", #selector(toggleDuoBlurSetting), symbol: "camera.filters")
+        let blurItem = makeItem("合盖毛玻璃", #selector(toggleDuoBlurSetting), symbol: "camera.filters")
         if duoBlur != nil {
             blurItem.state = duoBlurEnabled ? .on : .off
             blurItem.toolTip = "跟随铰链角度实时模糊屏幕"
@@ -1378,6 +1378,21 @@ if let i = CommandLine.arguments.firstIndex(of: "--power-probe") {
     let seconds = CommandLine.arguments.count > i + 1 ? Double(CommandLine.arguments[i + 1]) ?? 70 : 70
     SleepCatApp.probePower(seconds: seconds, log: true)
     RunLoop.main.run()
+}
+
+// 调试：./SleepCat --blur-demo [进度 0-1] [秒] 按固定进度显示毛玻璃；--blur-sweep 模拟合盖来回扫一遍
+if let i = CommandLine.arguments.firstIndex(of: "--blur-demo") ?? CommandLine.arguments.firstIndex(of: "--blur-sweep") {
+    let sweep = CommandLine.arguments[i] == "--blur-sweep"
+    let args = CommandLine.arguments.dropFirst(i + 1).compactMap(Double.init)
+    NSApplication.shared.setActivationPolicy(.accessory)
+    guard let blur = DuoBlur(sensor: LidAngleSensor()) else {
+        print("这台 Mac 没有铰链角度传感器，毛玻璃不可用"); exit(1)
+    }
+    DispatchQueue.main.async {
+        if sweep { blur.showSweep(seconds: args.first ?? 6) }
+        else { blur.showDemo(progress: args.first ?? 0.7, seconds: args.count > 1 ? args[1] : 6) }
+    }
+    NSApplication.shared.run()
 }
 
 // 调试：./SleepCat --dump-menu 打印菜单结构后退出

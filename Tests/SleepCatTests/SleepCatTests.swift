@@ -122,6 +122,46 @@ import AppKit
         #expect(DuoBlur.shouldHideCursor(progress: 1))
     }
 
+    @Test func blurRadiusFollowsTheAngle() {
+        // 全开时滤镜要整个关掉，不然静止时也在白烧 GPU
+        for band in DuoBlur.blurBands.indices {
+            #expect(DuoBlur.blurRadius(progress: 0, band: band) == 0)
+        }
+        // 同一层：越合越糊，单调不回落
+        let ramp = stride(from: 0.0, through: 1.0, by: 0.05).map { DuoBlur.blurRadius(progress: $0, band: 0) }
+        for (a, b) in zip(ramp, ramp.dropFirst()) { #expect(b >= a) }
+        #expect(ramp.last! == DuoBlur.maxBlurRadius)
+        // 同一进度：靠上的层先起雾，糊得更厉害
+        let atHalf = DuoBlur.blurBands.indices.map { DuoBlur.blurRadius(progress: 0.5, band: $0) }
+        for (a, b) in zip(atHalf, atHalf.dropFirst()) { #expect(b >= a) }
+    }
+
+    @Test func frostAndPollFollowProgress() {
+        #expect(DuoBlur.frostOpacity(progress: 0) == 0)
+        #expect(DuoBlur.frostOpacity(progress: 1) > 0.8)
+        #expect(DuoBlur.frostOpacity(progress: 0.5) < DuoBlur.frostOpacity(progress: 0.9))
+        // 盖子摊开不动时慢慢看着，一开始合就切到 60 帧
+        #expect(DuoBlur.pollInterval(progress: 0, angle: 130) == 0.1)
+        #expect(DuoBlur.pollInterval(progress: 0, angle: 95) < 0.02)
+        #expect(DuoBlur.pollInterval(progress: 0.3, angle: 130) < 0.02)
+    }
+
+    @Test func smoothingIsFrameRateIndependent() {
+        // 同样的 0.3 秒，用 60 帧还是 10 帧推进，结果要基本一致
+        func run(steps: Int) -> Double {
+            var value = 0.0
+            for _ in 0..<steps { value = DuoBlur.smoothed(current: value, target: 1, dt: 0.3 / Double(steps)) }
+            return value
+        }
+        #expect(abs(run(steps: 18) - run(steps: 3)) < 0.05)
+        #expect(run(steps: 18) > 0.9, "0.3 秒内基本跟上")
+        #expect(DuoBlur.smoothed(current: 0.5, target: 0.5, dt: 1) == 0.5)
+    }
+
+    @Test func grainPatternIsAvailable() {
+        #expect(DuoBlur.grainPattern(tile: 16) != nil, "磨砂颗粒生成失败的话玻璃会显得像塑料")
+    }
+
     @Test func neverOutOfRange() {
         for angle in stride(from: -10.0, through: 360.0, by: 5) {
             let p = DuoBlur.progress(forAngle: angle)
