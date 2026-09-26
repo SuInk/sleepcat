@@ -1002,3 +1002,58 @@ import AppKit
     }
 }
 
+
+@Suite struct WelcomeTests {
+    private func freshDefaults() throws -> (UserDefaults, String) {
+        let name = "test.sleepcat.welcome.\(UUID().uuidString)"
+        return (try #require(UserDefaults(suiteName: name)), name)
+    }
+
+    @Test func greetsNewUsersExactlyOnce() throws {
+        let (d, name) = try freshDefaults()
+        defer { UserDefaults.standard.removePersistentDomain(forName: name) }
+        #expect(Welcome.takeFirstLaunch(defaults: d))
+        #expect(!Welcome.takeFirstLaunch(defaults: d), "只打一次招呼")
+    }
+
+    @Test func leavesUpgradingUsersAlone() throws {
+        let (d, name) = try freshDefaults()
+        defer { UserDefaults.standard.removePersistentDomain(forName: name) }
+        d.set(Date(), forKey: "lastUpdateCheck")   // 老版本用过，只是还没有 welcomeShown
+        #expect(!Welcome.takeFirstLaunch(defaults: d))
+    }
+
+    // 14 寸 MacBook Pro：屏宽 1512，刘海两侧各留 652
+    let screen = NSRect(x: 0, y: 0, width: 1512, height: 982)
+
+    @Test func catBesideTheNotchIsVisible() {
+        let item = NSRect(x: 1200, y: 950, width: 30, height: 32)
+        #expect(!Welcome.isCovered(item: item, screen: screen, notchLeftWidth: 652, notchRightWidth: 652))
+    }
+
+    @Test func catUnderTheNotchIsCovered() {
+        let item = NSRect(x: 700, y: 950, width: 30, height: 32)
+        #expect(Welcome.isCovered(item: item, screen: screen, notchLeftWidth: 652, notchRightWidth: 652))
+        // 压到刘海边上一半也算挡住
+        let edge = NSRect(x: 845, y: 950, width: 30, height: 32)
+        #expect(Welcome.isCovered(item: edge, screen: screen, notchLeftWidth: 652, notchRightWidth: 652))
+    }
+
+    @Test func catOffScreenIsCovered() {
+        let item = NSRect(x: -40, y: 950, width: 30, height: 32)
+        #expect(Welcome.isCovered(item: item, screen: screen, notchLeftWidth: nil, notchRightWidth: nil))
+    }
+
+    @Test func noNotchMeansTheMiddleIsFine() {
+        let item = NSRect(x: 700, y: 950, width: 30, height: 32)
+        #expect(!Welcome.isCovered(item: item, screen: screen, notchLeftWidth: nil, notchRightWidth: nil))
+    }
+
+    @Test func worksOnASecondScreen() {
+        let right = NSRect(x: 1512, y: 0, width: 1512, height: 982)
+        #expect(!Welcome.isCovered(item: NSRect(x: 2800, y: 950, width: 30, height: 32), screen: right,
+                                   notchLeftWidth: 652, notchRightWidth: 652))
+        #expect(Welcome.isCovered(item: NSRect(x: 2250, y: 950, width: 30, height: 32), screen: right,
+                                  notchLeftWidth: 652, notchRightWidth: 652))
+    }
+}
