@@ -4,12 +4,13 @@
 
 import AppKit
 
-/// 菜单栏猫猫下方弹一下的小提示，1.6 秒后淡出。
+/// 菜单栏猫猫下方弹一下的小提示，默认 1.6 秒后淡出。
 /// 点完菜单项菜单就收起了，复制成没成功用户看不到；用系统通知又要申请权限，太重。
+/// 没有猫猫可对（比如被刘海挡住了）就弹在屏幕上方正中
 enum Toast {
     private static var panel: NSPanel?
 
-    static func show(_ text: String, below button: NSStatusBarButton?) {
+    static func show(_ text: String, below button: NSStatusBarButton?, duration: TimeInterval = 1.6) {
         panel?.orderOut(nil)
 
         let label = NSTextField(labelWithString: text)
@@ -25,6 +26,8 @@ enum Toast {
             if let visible = window.screen?.visibleFrame {   // 猫猫靠右时别让提示出屏幕
                 origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
             }
+        } else if let visible = NSScreen.main?.visibleFrame {
+            origin = NSPoint(x: visible.midX - size.width / 2, y: visible.maxY - size.height - 12)
         }
 
         let p = NSPanel(contentRect: NSRect(origin: origin, size: size),
@@ -56,7 +59,7 @@ enum Toast {
             ctx.duration = 0.15
             p.animator().alphaValue = 1
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
             guard panel === p else { return }   // 期间又弹了新的，旧的已经被换掉
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.3

@@ -135,6 +135,7 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateLegacyDefaults()   // 必须在读任何设置之前
+        let firstLaunch = Welcome.takeFirstLaunch()   // 要赶在下面写入各种设置之前判断
         Notifier.shared.setUp()
         LaunchAtLogin.applyDefaultIfNeeded()
         trimOldLogs()
@@ -198,6 +199,12 @@ final class SleepCatApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             self?.logStatusItemPosition()
+        }
+        if firstLaunch {
+            // 等图标落位、遮挡状态算出来再看猫猫露没露脸
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                Welcome.greet(self?.statusItem?.button)
+            }
         }
     }
 
